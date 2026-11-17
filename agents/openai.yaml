@@ -1,0 +1,6 @@
+interface:
+  display_name: "OpenJlink"
+  short_description: "按工程规则调用 J-Link、RTT、变量、故障、RTOS 和协议工具"
+  default_prompt: "使用 $openjlink，通过 CLI 根据当前工程规则完成调试，先核对目标与产物，再保存可核对的证据。"
+policy:
+  allow_implicit_invocation: true

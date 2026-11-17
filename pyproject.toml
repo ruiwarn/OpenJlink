@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openjlink"
+version = "0.1.0"
+requires-python = ">=3.10"
+description = "Project-independent J-Link CLI for embedded development and evidence capture"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE", "NOTICE", "LICENSES/*"]
+dependencies = ["pylink-square==2.1.0", "pyelftools==0.32", "pyserial>=3.5,<4", "cmsis-svd==0.6"]
+
+[project.optional-dependencies]
+modbus = ["pymodbus>=3.11,<4"]
+test = ["pytest>=8", "ruff>=0.11"]
+
+[project.urls]
+Homepage = "https://github.com/ruiwarn/OpenJlink"
+Issues = "https://github.com/ruiwarn/OpenJlink/issues"
+
+[project.scripts]
+openjlink = "openjlink.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["scripts"]
+include = ["openjlink*"]
+
+[tool.setuptools.package-data]
+"openjlink.analysis" = ["*.html"]
+
+[tool.pytest.ini_options]
+pythonpath = ["scripts"]
+testpaths = ["tests"]

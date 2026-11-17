@@ -1,0 +1,24 @@
+OpenJlink
+
+OpenJlink's original code is provided under the MIT License in LICENSE.
+
+Vendored source:
+- scripts/openjlink/analysis/systemview.py adapts the public MKLink AI Probe
+  SystemView decoder at commit d000370b901a72e4f8ec8fe09cf8b837f2579f0c.
+  Copyright (c) 2025 MicroKeen. MIT license: LICENSES/MKLink-MIT.txt.
+  Source: https://github.com/Aladdin-Wang/Mklink-AI-Probe/blob/d000370b901a72e4f8ec8fe09cf8b837f2579f0c/Mklink-AI-Probe/mklink/systemview_parser.py
+  Changes: removed comments/docstrings, activated the existing sync scanner,
+  corrected sync-padding accounting, exposed pending_bytes, and integrated
+  independent completeness reporting. No device firmware is included.
+
+Runtime dependencies, installed separately rather than vendored:
+- pylink-square: https://github.com/square/pylink (Apache-2.0).
+- cmsis-svd: https://github.com/cmsis-svd/cmsis-svd (Apache-2.0).
+- pyelftools: https://github.com/eliben/pyelftools.
+- pyserial: https://github.com/pyserial/pyserial.
+- pymodbus, optional: https://github.com/pymodbus-dev/pymodbus.
+
+These dependencies keep their own license and copyright notices in their
+distributions. SEGGER libraries, target modules, firmware, Flash algorithms,
+RTOS integrations and device descriptions are not relicensed by OpenJlink.
+SEGGER binaries and vendor device data are not distributed in this repository.

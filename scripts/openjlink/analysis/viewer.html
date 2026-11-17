@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>__TITLE__</title>
+<style>body{font:16px system-ui;margin:24px;color:#183448;background:#f8fafc}button,input,select{font:inherit;margin:6px}canvas{width:100%;height:480px;background:white;border:1px solid #ccd5dd}#channels label{display:inline-block;margin:8px}pre{white-space:pre-wrap}</style>
+<h1>__TITLE__</h1><p>Offline replay. Wheel: zoom. Drag: pan. Click: cursor. This page never connects to hardware.</p>
+<button id="play">Play / pause</button><button id="reset">Full range</button>
+<label>Speed <select id="speed"><option>.25</option><option>.5</option><option selected>1</option><option>2</option><option>4</option><option>8</option><option>16</option></select></label>
+<input id="position" aria-label="Replay position" type="range" min="0" max="1000" value="1000">
+<select id="trigger" aria-label="Trigger channel"></select><input id="threshold" aria-label="Trigger threshold" type="number" value="0"><button id="find">Find rising edge</button>
+<div id="channels"></div><canvas id="plot" width="1400" height="480"></canvas><pre id="value"></pre>
+<script>
+const rows=__DATA__,c=document.getElementById('plot'),ctx=c.getContext('2d'),slider=document.getElementById('position');
+const names=[...new Set(rows.flatMap(r=>Object.keys(r.v)))],visible=new Set(names),colors=['#0066cc','#c43c00','#008844','#770099','#ae6600'];
+let left=0,right=rows.length,playing=false,drag=null,lastFrame=null,playTime=0;
+for(const n of names){let label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.checked=true;box.onchange=()=>{box.checked?visible.add(n):visible.delete(n);draw()};label.append(box,document.createTextNode(n));document.getElementById('channels').append(label);let option=document.createElement('option');option.value=n;option.textContent=n;document.getElementById('trigger').append(option)}
+function draw(){ctx.clearRect(0,0,c.width,c.height);if(!rows.length)return;let lo=Infinity,hi=-Infinity;for(let i=left;i<right;i++)for(const n of visible){let v=rows[i].v[n];if(Number.isFinite(v)){lo=Math.min(lo,v);hi=Math.max(hi,v)}}if(!Number.isFinite(lo))return;const t0=rows[left].t,t1=rows[right-1].t;let k=0;for(const n of visible){ctx.strokeStyle=colors[k++%colors.length];ctx.fillStyle=ctx.strokeStyle;ctx.fillText(n,20,16*k);ctx.beginPath();let prior=false;for(let i=left;i<right;i++){let v=rows[i].v[n];if(!Number.isFinite(v)){prior=false;continue}let x=(rows[i].t-t0)/(t1-t0||1)*c.width,y=440-(v-lo)/(hi-lo||1)*360;prior?ctx.lineTo(x,y):ctx.moveTo(x,y);prior=true}ctx.stroke()}ctx.fillStyle='#183448';ctx.fillText(t0.toFixed(6)+' s → '+t1.toFixed(6)+' s; range '+lo+' … '+hi,20,470);slider.value=right/rows.length*1000}
+function cursor(index){document.getElementById('value').textContent=JSON.stringify(rows[Math.max(0,Math.min(rows.length-1,index))],null,2)}
+slider.oninput=()=>{playing=false;right=Math.max(1,Math.round(rows.length*slider.value/1000));left=Math.min(left,right-1);draw();cursor(right-1)};
+document.getElementById('reset').onclick=()=>{left=0;right=rows.length;playing=false;draw()};
+document.getElementById('play').onclick=()=>{playing=!playing;if(playing){if(right>=rows.length){left=0;right=1}playTime=rows[right-1].t;lastFrame=null}};
+function animate(now){if(playing){if(lastFrame!==null)playTime+=(now-lastFrame)/1000*Number(document.getElementById('speed').value);while(right<rows.length&&rows[right].t<=playTime)right++;if(right>=rows.length)playing=false;draw();cursor(right-1)}lastFrame=now;requestAnimationFrame(animate)}
+c.onwheel=e=>{e.preventDefault();playing=false;let width=Math.max(2,Math.min(rows.length,Math.round((right-left)*(e.deltaY>0?1.2:.8))));left=Math.max(0,right-width);draw()};
+c.onpointerdown=e=>{drag={x:e.clientX,moved:false};c.setPointerCapture(e.pointerId)};
+c.onpointermove=e=>{if(!drag)return;let delta=Math.round((drag.x-e.clientX)*(right-left)/c.clientWidth),width=right-left;if(delta){drag.moved=true;left=Math.max(0,Math.min(rows.length-width,left+delta));right=left+width;drag.x=e.clientX;playing=false;draw()}};
+c.onpointerup=e=>{if(drag&&!drag.moved){let ratio=(e.clientX-c.getBoundingClientRect().left)/c.clientWidth;cursor(left+Math.round(ratio*(right-left-1)))}drag=null};
+document.getElementById('find').onclick=()=>{let n=document.getElementById('trigger').value,v=Number(document.getElementById('threshold').value);for(let i=1;i<rows.length;i++)if(rows[i-1].v[n]<v&&rows[i].v[n]>=v){let width=Math.min(rows.length,Math.max(20,right-left));left=Math.max(0,Math.min(rows.length-width,i-Math.floor(width/2)));right=left+width;playing=false;draw();cursor(i);return}document.getElementById('value').textContent='No recorded rising edge found'};
+draw();if(rows.length)cursor(rows.length-1);requestAnimationFrame(animate);
+</script></html>
