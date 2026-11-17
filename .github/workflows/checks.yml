@@ -16,6 +16,14 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: python -m pip install -e ".[test,modbus]"
       - run: ruff check scripts tests --select F,E9
+      - name: Check Skill documentation language
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+          paths = [Path("SKILL.md"), Path("agents/openai.yaml"), *Path("references").rglob("*.md")]
+          invalid = [str(path) for path in paths if re.search(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]", path.read_text(encoding="utf-8"))]
+          assert not invalid, f"Keep Skill materials in English; CJK text found in: {invalid}"
       - run: python -m pytest -q
       - run: openjlink --version
       - run: openjlink schema

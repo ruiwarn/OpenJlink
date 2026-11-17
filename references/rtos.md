@@ -1,30 +1,30 @@
-# RTOS 与 SystemView
+# RTOS and SystemView
 
-线程感知调试和运行事件跟踪分别配置、分别验收。裸机也能记录中断/用户事件，不需要为了本工具换成 RTOS。
+Configure and validate thread-aware debugging and execution-event tracing separately. Bare-metal firmware can also record interrupts and user events; adopting an RTOS is not required by this tool.
 
-## 线程与调用栈
+## Threads and backtraces
 
-先确认 J-Link Software Pack 版本、精确目标和 RTOS。FreeRTOS/embOS 有官方 GDB Server 插件路径；RT-Thread 等必须检查真实插件，不能由“支持 SystemView”推断“有线程插件”。
+Confirm the J-Link Software Pack version, exact target, and RTOS. FreeRTOS/embOS have official GDB Server plugin paths. Verify an actual plugin for RT-Thread and other systems; SystemView support does not establish thread-plugin support.
 
-`gdb_server_arguments(serial,device,...,rtos_plugin)` 生成官方服务器参数，不启动硬件。由 AI 在明确交接 SDK/IDE 所有权后，使用终端工具启动该参数列表，记录进程和日志。插件传真实文件路径；未提供插件时不得声称能列出所有 RTOS 线程。
+`gdb_server_arguments(serial,device,...,rtos_plugin)` generates official server arguments without accessing hardware. After explicitly handing ownership over from SDK/IDE, launch that exact argument list through host process tools and record the process/log. Supply a real plugin path. Without the required plugin, do not claim to enumerate all RTOS threads.
 
-`gdb_inspect(elf,action,host,port,gdb,confirm)` 连接已配置的回环 GDB Server，action 为 threads/backtrace/registers。它禁用用户 GDB 初始化和 ELF 自动加载脚本，返回原始 stdout/stderr/退出码。连接、暂停和 detach 可能改变执行状态；确认允许后使用，不与本工具 SDK 连接并用。
+`gdb_inspect(elf,action,host,port,gdb,confirm)` connects to a configured loopback GDB Server. action is threads/backtrace/registers. User initialization and ELF auto-load scripts are disabled; raw stdout/stderr/exit code are returned. Connecting, halting, and detaching may alter execution. Use it within authorization and do not attach concurrently with this tool's SDK connection.
 
-线程列表、当前状态和栈深不是运行时间线；栈回溯失败时保留原始原因，优化、缺 CFI、栈破坏或错误上下文都可能影响结果。
+Thread lists, current states, and stack depth do not constitute an execution timeline. Preserve backtrace errors: optimization, missing CFI, stack corruption, and incorrect context can all affect unwinding.
 
-## SystemView 事件
+## SystemView events
 
-工程已有 SystemView 时先核对目标/RTOS/版本、时间源、RTT 通道、缓冲模式和 symbols。没有时，AI 在具体开发授权中指导集成官方 target module 和对应 OS hooks，不默认修改任何工程。
+If the project already has SystemView, verify the target/RTOS/version, time source, RTT channel, buffer mode, and symbols. Otherwise, guide integration of the official target module and matching OS hooks within the specific development task's authorization; do not modify arbitrary projects automatically.
 
-FreeRTOS 核对对应版本的 trace 宏、SEGGER_SYSVIEW_Config_FreeRTOS.c、时间戳实现和中断锁定方式；不要覆盖已有 trace 宏或假定 Cortex-M0 有 DWT。RT-Thread 核对调度/线程/ISR hooks，保留工程已有 hook 链，并检查 OS 版本。Zephyr、ThreadX、embOS 等按其官方/已有移植说明适配，不能把一套钩子直接用于所有系统。
+For FreeRTOS, check trace macros for its version, SEGGER_SYSVIEW_Config_FreeRTOS.c, timestamp implementation, and interrupt-locking method. Preserve existing trace macros and do not assume Cortex-M0 has DWT. For RT-Thread, verify scheduler/thread/ISR hooks and the OS version while preserving existing hook chains. Follow official or existing ports for Zephyr, ThreadX, embOS, and others; one hook set is not interchangeable across all systems.
 
-目标先产生事件，然后通过 RTT 采集对应通道、export_rtt，再 decode_systemview。传入 tick_hz 时须来自工程真实事件时钟，不能拿 CPU 标称频率代替定时器频率。解码器来源及适用边界在 sources.md，尚未与所有新版本 SystemView 实板组合验收。
+The target must generate events before the corresponding RTT channel can be captured, exported with export_rtt, and decoded with decode_systemview. A supplied tick_hz must describe the project's actual event clock, not an assumed CPU nominal frequency. Decoder provenance and scope are in [sources.md](sources.md); validation does not cover all recent SystemView/board combinations.
 
-`analyze_events` 接受已解码的 kind/t_us 或 t_ticks 事件，统计任务和嵌套 ISR 的独占时间；未知区间单列，溢出会将完整性标为不通过。窗口仅覆盖首末事件，不推算末尾未完成片段。最大观察区间不是完整任务响应时延。
+`analyze_events` accepts decoded kind/t_us events, or t_ticks with an explicit frequency. It accounts for exclusive task and nested-ISR time, reports unknown intervals separately, and marks overflow as incomplete. Its window spans only the first through last event, without extrapolating unfinished trailing activity. A maximum observed interval is not a complete task response latency.
 
-先用已知周期任务、长 ISR、嵌套 ISR、阻塞/唤醒、空闲、事件溢出、时间戳回绕和目标重启验证。缺少 ready/blocked、等待对象或锁持有者证据时，不能把“很久没运行”直接诊断为死锁或优先级反转。
+Validate using known periodic tasks, a long ISR, nested ISRs, blocking/wakeup, idle periods, event overflow, timestamp wrap, and target restart. Without ready/blocked, wait-object, or lock-owner evidence, a long absence of execution does not establish deadlock or priority inversion.
 
-官方依据：
+Official references:
 
 - https://kb.segger.com/J-Link_GDB_Server
 - https://www.segger.com/products/development-tools/systemview/technology/supported-rtos/

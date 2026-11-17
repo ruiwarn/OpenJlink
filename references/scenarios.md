@@ -1,24 +1,24 @@
-# 从开发问题到观测方法
+# From development problems to observations
 
-这张表用于发现合适的能力，不代表每项都应执行。按问题选择最少的观测，保留工程已有入口与约束。
+Use this table to discover suitable capabilities, not as a list of mandatory actions. Choose the smallest observation that addresses the problem and preserve the project's existing entry points and constraints.
 
-| 场景 | 建议流程 | 需要的输入/不能推断的结论 |
+| Scenario | Suggested workflow | Required inputs and inference limits |
 |---|---|---|
-| 新工程接入 | 工程规则 → inspect_environment → 确认目标/产物 → 明确需要时再连接 | 不要求统一构建系统；不用默认第一只探针 |
-| 连接偶发失败 | 保存工具/固件/序列号、接口速率、VREF 和原始错误；核对接线与占用 | 不把失败自动归因于探针，也不自动换驱动或复位 |
-| 构建失败后怕下载旧程序 | run_build 保存退出码/日志 → 仅成功产物进入 inspect_image/烧录 | 文件时间变化不是唯一产物依据；失败不能继续下载 |
-| 下载后不启动 | 核对镜像/ELF/范围 → 下载回读 → 按工程启动 → 已知心跳/启动日志/协议 | 回读通过与运行通过分别判定；默认不复位 |
-| 保留参数或文件系统 | 按擦除几何分析镜像与保留区 → 前后读取核对 | 前后核对只能发现已发生改变，不能阻止错误 loader 擦除 |
-| 变量/结构体状态异常 | 匹配 ELF → search_symbols/type_info → 读取成员/数组 → 必要时有限采集 | 优化或动态位置不可猜；写变量先 verify_image |
-| UART/ADC/DMA/定时器状态异常 | 加载准确 SVD → 列寄存器/位域 → 对照手册 → read_peripherals | readAction/只写拒绝；SVD 不证明硬件版本匹配，不自动轮询陌生 MMIO |
-| 偶发越界或状态跳变 | 定义信号/单位/时间要求 → 有界采集 → 曲线/差分 → 缩小时间窗 | 离线找上升沿不等于采集时触发；触发环形缓冲未实现 |
-| 复位/HardFault/跑飞 | 先取现场与复位原因 → 明确暂停允许 → fault_snapshot → PC/LR/源码行 | 基本帧地址需按 EXC_RETURN/架构确定；不先复位破坏现场 |
-| RTOS 卡顿/高负载 | 线程快照看当前状态，事件跟踪看运行过程；任务与 ISR 分别统计 | 缺 RTOS 插件/事件 hooks 时先补适配，不能伪造时间线 |
-| 疑似死锁/优先级反转 | 收集线程栈、等待对象、锁持有者、优先级、ready/blocked 和切换记录 | 长时间没运行本身不足以确诊；当前自动分析未覆盖完整等待关系 |
-| ISR 太长/周期抖动 | 使用目标时间源事件；核对嵌套 ISR 与丢事件；与关闭观测时对照 | 主机 RTT 到达时间不是 ISR 执行时间；不默认每个内核有 DWT |
-| RTT 下行无响应 | 核对实际通道 → 有界发送 → 应用 ACK/状态读取 | 部分发送不重放；当前读取会消耗缓冲，历史游标后台未实现 |
-| 串口半帧/错校验/重启 | 记录原始 TX/RX → 使用已有帧解析器和协议测试 → 对齐复位/日志 | 收到字节不等于匹配响应；写超时先查状态 |
-| 改动前后回归 | 固定负载/激励/采样条件 → 两份原始记录 → compare_recordings + 工程测试 | 均值变化不建立因果；真实动作/电气结果需独立仪器 |
-| 高频同步多信号 | 评估信号带宽 → 同点成包、目标序号/时钟 → RTT → decode_packets | 目标采样代码按工程开发；不能承诺主机轮询达到竞品速度 |
+| Bring up a new project | Project rules -> inspect_environment -> confirm target/artifacts -> connect only when needed | Do not require a common build system or default to the first probe |
+| Intermittent connection failure | Save tool/firmware/serial details, interface speed, VREF, and raw errors; check wiring and ownership | Do not automatically blame the probe, replace drivers, or reset |
+| Avoid programming stale output after a failed build | run_build saves exit code/log -> only successful artifacts proceed to inspect_image/programming | Modification time alone does not establish artifact identity; do not program after failure |
+| Firmware does not start after programming | Check image/ELF/ranges -> program and read back -> use the project's start procedure -> known heartbeat/startup logs/protocol | Assess readback and execution separately; reset is not the default |
+| Preserve parameters or a filesystem | Analyze image and preserved ranges against erase geometry -> compare before/after reads | Comparison detects changes already made; it cannot prevent an incorrect loader from erasing data |
+| Unexpected variable or structure state | Matching ELF -> search_symbols/type_info -> read members/arrays -> bounded capture if needed | Do not guess optimized or dynamic locations; verify_image before symbolic writes |
+| Unexpected UART/ADC/DMA/timer state | Load the exact SVD -> list registers/fields -> verify the manual -> read_peripherals | Reject declared readAction and write-only access; an SVD does not prove revision matching or authorize polling unfamiliar MMIO |
+| Intermittent out-of-range value or state transition | Define signals/units/timing needs -> bounded capture -> plots/differences -> narrow the window | Offline edge search is not a capture trigger; trigger ring capture is not implemented |
+| Reset, HardFault, or invalid execution | Preserve fault state/reset cause -> confirm halting is allowed -> fault_snapshot -> PC/LR/source lines | Derive the basic frame address from EXC_RETURN/architecture; do not reset before capturing evidence |
+| RTOS stalls or high load | Use thread snapshots for current state and event tracing for execution; account for tasks and ISRs separately | Configure missing RTOS plugins/hooks before claiming a timeline |
+| Suspected deadlock or priority inversion | Collect stacks, wait objects, lock owners, priorities, ready/blocked states, and switches | A long absence of execution is insufficient; current automatic analysis does not cover complete wait relationships |
+| Long ISR or period jitter | Use target-clock events; check nesting and loss; compare against observation-disabled behavior | Host RTT arrival time is not ISR execution time; do not assume every core has DWT |
+| No application response to RTT input | Check actual channels -> bounded transmission -> application ACK/status read | Do not replay partial writes; current reads consume the buffer and have no history-cursor backend |
+| Partial serial frame, bad checksum, or reboot | Preserve raw TX/RX -> use existing frame parser/protocol tests -> align with reset/log evidence | Received bytes do not prove a correlated response; inspect state before retrying a timed-out write |
+| Compare a change against its baseline | Fix load/stimulus/capture conditions -> save two raw recordings -> compare_recordings and project tests | Mean differences do not establish causation; physical/electrical results need independent instruments |
+| Fast synchronized multi-signal capture | Evaluate signal bandwidth -> form packets at one sampling point with target sequence/time -> RTT -> decode_packets | Develop target sampling in the concrete project; do not promise competitor throughput from host polling |
 
-需要观察点、条件断点、源码级 step/next、局部变量或复杂栈上下文时，使用准确配置的 GDB/IDE 并明确交接连接。当前 CLI 的 gdb_inspect 只提供线程、调用栈和寄存器三个动作，不编造更多 action。
+For watchpoints, conditional breakpoints, source-level step/next, locals, or complex stack contexts, use correctly configured GDB/IDE with explicit ownership handoff. The current gdb_inspect CLI provides only thread, backtrace, and register actions; do not invent more action values.

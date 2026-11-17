@@ -1,11 +1,11 @@
-# 串口、RS485 与协议联动
+# Serial, RS485, and protocol workflows
 
-J-Link 负责调试链路，UART/RS485 可由独立 USB 适配器承担。先确认电气接口、接线、端口、波特率、数据位/校验/停止位、协议与设备地址；不能把串口号相同当作设备身份相同。
+J-Link provides the debug connection; a separate USB adapter can provide UART/RS485. Confirm electrical interface, wiring, port, baud rate, data bits, parity, stop bits, protocol, and device address. Reusing a port name does not prove device identity.
 
-`serial_ports` 列出端口。`serial_exchange` 按明确参数打开一个端口，最多发送4096B、接收65536B，写入需要授权。它只发送一次，不做自动重试；返回真实 TX/RX 与主机时间区间，收到的字节可能包含主动上报，不能据此确认请求/响应匹配。二进制从 data_hex 传递，不经终端文本编码。
+`serial_ports` lists ports. `serial_exchange` opens an explicit port, sends at most 4096 bytes, and receives at most 65536 bytes. Writes require authorization. It sends once without automatic retry and returns actual TX/RX and the host time interval. Received bytes may include unsolicited messages, so they do not establish request/response correlation. Binary data is passed through data_hex without terminal-text encoding.
 
-`modbus` 使用零重试的 Modbus RTU，支持 FC1/2/3/4/5/6/15/16。slave、地址、数量、values 都由任务提供；写线圈只接受0/1，单写只接受一个值，拒绝跨地址空间范围。保留底层 TX/RX 数据，协议 ACK 不等于设备已完成机械/业务动作。响应丢失时先读状态，不盲重放写操作。
+`modbus` uses Modbus RTU with zero retries and supports FC1/2/3/4/5/6/15/16. The task supplies slave, address, count, and values. Coil writes accept only 0/1; single writes accept one value; address-space overflow is rejected. Raw TX/RX are retained. A protocol ACK does not establish completion of mechanical or application actions. Inspect state after a lost reply instead of blindly replaying writes.
 
-自定义协议/DLT645/CAN 网关等应复用工程已有测试器和帧定义。通用工具不内置业务 DI、寄存器表、校准流程或动作判据。AI 可用 run_build 按显式 argv 运行现有测试入口，收集其日志与结果文件；工具包不从进程退出码推定物理动作成功。
+For custom protocols, DLT645, CAN gateways, and similar workflows, reuse existing project testers and frame definitions. The generic toolkit does not embed application data identifiers, register maps, calibration flows, or action criteria. run_build can execute existing test entry points with explicit argv and collect logs/result files. Process exit codes do not establish physical action.
 
-将构建/镜像 ID、协议原始帧、RTT、变量、目标事件和仪器记录关联到同一实验。不同主机/目标时钟需要显式同步或标注误差；软件状态改变、驱动输出和实际触点/传感器结果分开记录。
+Associate build/image identity, raw frames, RTT, variables, target events, and instrument records with the same experiment. Distinct host/target clocks need explicit synchronization or error bounds. Report software state changes, driver outputs, and actual contact/sensor outcomes separately.

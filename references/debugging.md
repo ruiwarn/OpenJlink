@@ -1,33 +1,33 @@
-# 构建、下载与调试
+# Building, programming, and debugging
 
-## 构建与镜像
+## Builds and images
 
-使用工程允许的命令。`run_build(argv,cwd,artifacts,output_dir,confirm)` 只按给定参数列表执行，不调用 shell，不猜产物，不安装工具链。成功时记录退出码、日志和显式产物的 SHA-256；失败不收集旧产物。它不证明镜像已下载。
+Use commands allowed by the project. `run_build(argv,cwd,artifacts,output_dir,confirm)` executes the supplied argument list without a shell, artifact guessing, or toolchain installation. On success it records the exit code, log, and SHA-256 of explicit artifacts. On failure it does not collect stale output. It does not establish that firmware was programmed.
 
-增量构建允许产物字节不变，不能仅凭修改时间判新旧。AI 应将成功构建的清单与后续烧录输入关联。构建超时会停止直接子进程，但不保证其所有后代都已退出；此时结果不通过，不继续下载。
+An incremental build can legitimately leave artifact bytes unchanged, so modification time alone does not determine freshness. Associate the successful build manifest with subsequent programming input. A build timeout stops the direct child but does not guarantee all descendants exited. Treat that result as failed and do not proceed to programming.
 
-`inspect_image(path,base_address)` 离线检查 ELF/AXF/OUT、Intel HEX 或 BIN。BIN 必须提供基址；HEX 保留地址空洞并检查校验与 EOF。ELF 使用有文件内容的 PT_LOAD 物理加载地址，不把 BSS 当烧录数据。工具不保证外置 Flash 初始化或每种厂商特殊镜像可直接处理；这些条件从工程获得。
+`inspect_image(path,base_address)` checks ELF/AXF/OUT, Intel HEX, or BIN offline. BIN requires an explicit base address. HEX preserves address holes and checks checksums and EOF. ELF uses the physical load addresses of PT_LOAD segments with file contents; BSS is not programming data. Determine external-Flash initialization and support for vendor-specific images from the project.
 
-烧录走 `start_job(operation="program",arguments=...,request_id=...,confirm=true)`。arguments 包括 `path`、BIN 的 `base_address`、必须给出的 `allowed_ranges=[{address,size}]`、可选 `reset_after` 和 `preserve_ranges`。allowed_ranges 必须结合实际擦除单元及授权范围确定，不能只看几个待写字节。镜像存为任务私有快照，任务去重包含镜像摘要，避免排队期间文件重建导致下载内容变化。
+Program through `start_job(operation="program",arguments=...,request_id=...,confirm=true)`. Arguments include `path`, `base_address` for BIN, required `allowed_ranges=[{address,size}]`, and optional `reset_after` and `preserve_ranges`. Determine allowed_ranges from actual erase units and authorization, not just the bytes to be written. The image is stored as a private job snapshot, and deduplication includes its hash so rebuilding a file while queued cannot silently change the programmed bytes.
 
-工具调用 SDK loader 后逐段回读比较；不是仅相信返回码。`preserve_ranges` 可在下载前后核对参数/文件系统区域，最多 16 项/总计4096B；核对失败表示可能已经改写，不能恢复或自动重烧。更大的保留区可先后用 dump_memory 单独留证。任何会擦到保留区的 loader/几何错误仍必须在执行前由工程分析避免。
+After invoking the SDK loader, the tool reads back and compares each segment. `preserve_ranges` checks parameter/filesystem regions before and after programming, up to 16 regions and 4096 bytes total. Failure means data may already have changed; it does not restore data or permit automatic reprogramming. Use dump_memory separately for larger preservation evidence. Analyze loader behavior and erase geometry before execution to avoid erasing preserved regions.
 
-默认不复位；`reset_after` 是显式选择。完成后由 AI 按该工程确认启动方式，用已知心跳、任务计数、RTT 或协议测试检查运行。不要把 verified=true 写成整机功能通过。整片擦除使用单独的 erase 任务，必须传当前精确 device；不默认解锁受保护器件。
+Reset is disabled by default; `reset_after` is explicit. After completion, follow the project's startup procedure and inspect execution using a known heartbeat, task counter, RTT, or protocol test. Do not report verified=true as whole-device acceptance. Chip erase is a separate erase job requiring the exact connected device. Protected devices are not automatically unlocked.
 
-## 符号、变量和内存
+## Symbols, variables, and memory
 
-`load_symbols` 不连接目标，generation 是文件内容摘要。`verify_image` 实际比较符号 ELF 中的加载字节与板上内容后，才允许 `write_variable`。这验证存储镜像匹配，不证明 CPU 当前正在运行该镜像。
+`load_symbols` does not connect to the target; generation is the file-content hash. `write_variable` is allowed only after `verify_image` compares the ELF's load bytes against target contents. This verifies stored image matching, not that the CPU is currently executing that image.
 
-支持固定地址全局变量、结构体成员、单维数组元素和标量 int/enum/float。优化掉、同名多定义、动态位置、多维数组、位域、指针写入和聚合写入明确拒绝。需要这些能力时使用工程的 GDB 和准确的上下文，不猜地址或静默降级。
+Supported symbol forms are fixed-address globals, structure members, one-dimensional array elements, and scalar int/enum/float values. Optimized-out variables, ambiguous names, dynamic locations, multidimensional arrays, bit fields, pointer writes, and aggregate writes are rejected. Use the project's GDB and accurate context for these cases instead of guessing addresses or silently falling back.
 
-`read_memory` 最大4096B；`read_regions` 最多16项/总计4096B，只合并连续/重叠范围。不同硬件读取不是原子快照。`dump_memory` 可将最大16MiB的指定范围分块保存，并记录完整/部分结果。
+`read_memory` allows up to 4096 bytes. `read_regions` allows at most 16 regions and 4096 bytes total, merging only adjacent or overlapping ranges. Separate hardware reads are not atomic. `dump_memory` saves an explicit range of up to 16 MiB in chunks, with complete/partial-result metadata.
 
-`write_memory` 必须回读一致，可通过 expected_hex 核对预期旧值；`write_regions` 最多8项/总计12KiB，按序执行并非原子事务。MMIO 是否适合回读由工程决定。硬件写异常后会隔离当前 SDK 会话，先检查证据，再显式断开/重连。
+`write_memory` requires matching readback and can check an expected old value through expected_hex. `write_regions` allows up to eight regions and 12 KiB total, executed in order without atomic transaction semantics. The project determines whether readback is appropriate for a given MMIO location. A hardware write exception quarantines the SDK session; inspect evidence before explicitly disconnecting and reconnecting.
 
-## CPU、断点和故障
+## CPU control, breakpoints, and faults
 
-`debug_control` 提供 halt/resume/step，暂停会影响控制环、看门狗与协议。先停止 RTT，再改变执行状态；不能声称实时性不受影响。断点只清理由本会话创建的句柄，不清其他工具的断点。
+`debug_control` provides halt/resume/step. Halting affects control loops, watchdogs, and communication. Stop RTT before changing CPU execution, and do not claim unchanged real-time behavior. Only breakpoint handles created by this session are cleared.
 
-`fault_snapshot` 要求目标已明确暂停，architecture 必须准确。M0/M0+/M23 不读 M3/M4 风格的 CFSR/HFSR；M3/M4/M7/M33 读取相应故障状态。异常栈基本帧地址由调用者提供，工具不假定 handler 中当前 MSP 就是入异常时栈顶。FPU 扩展栈、TrustZone、安全栈、异常嵌套和损坏栈必须按目标分析后确定地址。
+`fault_snapshot` requires an explicitly halted target and an accurate architecture. M0/M0+/M23 do not read M3/M4-style CFSR/HFSR. M3/M4/M7/M33 read their corresponding fault status. The caller supplies the basic exception-frame address; the current handler MSP is not assumed to be the exception-entry stack top. Determine addresses for FPU extended frames, TrustZone, secure stacks, nested exceptions, and damaged stacks from the actual target context.
 
-`symbolize` 用当前 ELF 将 PC/LR 映射到可找到的源码行，不编造完整回溯。自动复位后现场可能丢失，先取证；持久故障记录的布局与实现由具体工程开发任务决定。
+`symbolize` maps PC/LR through the current ELF to available source lines; it does not fabricate a full backtrace. Capture evidence before a reset destroys fault state. Persistent fault-record layout and implementation belong to the concrete project's development task.

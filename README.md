@@ -71,7 +71,7 @@ A single command closes its own session when it finishes. Separate connect/read 
 | Inspect RTOS threads and execution events | gdb-server-arguments, gdb-inspect, decode-systemview, analyze-events |
 | Run serial, RS485, and protocol regressions | serial-ports, serial-exchange, modbus, run-build |
 
-Run `openjlink schema` for the complete operation list and current signatures. Additional guides, currently in Chinese, cover [project setup](references/setup.md), [development scenarios](references/scenarios.md), [debugging](references/debugging.md), [capture](references/capture.md), [RTOS](references/rtos.md), and [protocols](references/protocol.md).
+Run `openjlink schema` for the complete operation list and current signatures. Additional guides cover [project setup](references/setup.md), [development scenarios](references/scenarios.md), [debugging](references/debugging.md), [capture](references/capture.md), [RTOS](references/rtos.md), and [protocols](references/protocol.md).
 
 ## Results and limitations
 

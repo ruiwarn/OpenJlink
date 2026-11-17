@@ -1,27 +1,27 @@
-# 采集、同步数据与离线分析
+# Capture, synchronized data, and offline analysis
 
-## RTT 与连续记录
+## RTT and continuous recording
 
-目标必须已集成并启用 RTT。`rtt_start(address)` 可用已知控制块地址或 SDK 搜索，`rtt_channels` 查询实际缓冲描述；发现可能需要时间，失败不能无限重试或重启板子。通道数以目标和驱动返回为准，不继承 MKLink 的固定通道数。
+The target must already integrate and enable RTT. `rtt_start(address)` uses a known control-block address or SDK discovery; `rtt_channels` queries actual buffer descriptors. Discovery can take time, but failure does not justify endless retries or target restarts. Channel counts come from the target and driver, not a fixed competitor limit.
 
-`rtt_read` 从当前 SDK 通道取走字节，不是可被多个消费者独立重复读取的历史接口。若要多方分析，使用保存的记录文件。`rtt_write` 最多256B，返回实际提交数；部分写不拆包重试，也不表示业务已执行。
+`rtt_read` consumes bytes from the SDK channel; it is not independently replayable history for multiple consumers. Share saved recordings for analysis. `rtt_write` accepts up to 256 bytes and returns the number actually submitted. Partial writes are not split and retried, and submission does not establish application execution.
 
-连续采集使用 `start_job(operation="capture",arguments={kind,duration,path,period,...},...)`。kind 为 variables、memory、rtt 或 systemview。变量给 names；内存给 regions；RTT/SystemView 给 channel，且须先启动 RTT。kind=systemview 仍保存原始字节，不会自己集成或启动目标端 RTOS 事件。
+Continuous recording uses `start_job(operation="capture",arguments={kind,duration,path,period,...},...)`. The kind can be variables, peripherals, memory, rtt, or systemview. Variables use names; peripherals require loaded SVD descriptions and register names; memory uses regions. RTT/SystemView uses channel and requires RTT to be started first. kind=systemview still records raw bytes; it does not integrate or start target-side RTOS events.
 
-记录最多一百万次请求，时长0.01–3600秒；输出必须是现有目录中的新文件。每行带主机单调时间和序号，旁边 `.meta.json` 记录完整性、文件摘要、实际轮询间隔、取消和失败。停止采集可用 cancel_capture，已落盘数据保留；文件未闭环、manifest 缺失或错误时不能判完整。
+A recording is limited to one million requested samples and 0.01-3600 seconds. The output must be a new file in an existing directory. Rows include a host monotonic timestamp and sequence number. The adjacent `.meta.json` records completeness, file hash, actual polling intervals, cancellation, and failures. cancel_capture requests a stop while preserving saved data. Do not classify a file as complete when its completion record is missing or invalid.
 
-period 是主机请求间隔；实际速率由硬件、字节数和连接决定。RTT 的轮询频率不是目标采样率，多变量分次读取也不是同步采样。SDK 与目标缓冲溢出可能丢失；没有目标端序号/计数器时明确为未知，不填零。
+period is a host request interval. Actual throughput depends on hardware, byte count, and connection. RTT polling frequency is not target sampling frequency, and sequential variable reads are not synchronized sampling. SDK/target-buffer overflow may lose data. Report loss as unknown when target sequence numbers or counters are unavailable.
 
-## 需要同步、高速或准确时间时
+## Synchronized, fast, or precise-time observations
 
-由 AI 阅读当前工程采样时机、时间源、变量一致性和带宽预算，指导目标端在同一逻辑采样点生成一个数据包。包至少明确：编码、字节序、字段类型、序号、目标时间戳/频率、重启/回绕规则、缓冲与丢失计数。采用有界非阻塞输出，验证插桩前后业务时序，不默认增加大缓冲或把浮点格式化放进 ISR。
+Read the current project's sample timing, time source, variable consistency, and bandwidth budget. Guide target code to form one packet at a single logical sampling point. Define encoding, byte order, field types, sequence, target timestamp/frequency, restart/wrap rules, buffering, and loss counts. Use bounded nonblocking output and compare application timing with and without instrumentation. Do not assume a large buffer is appropriate or add floating-point formatting to an ISR by default.
 
-工具包不包含绑定某个 MCU/RTOS 的采样代码。`decode_packets` 可按调用者提供的 struct 格式、字段名、同步头、时间戳字段、频率和序号字段解码固定数据包，检查序号缺口/重复/复位/回绕，并生成统一记录。它不自动检查未知业务协议的 CRC、逃逸或帧长度；需要时先用已有协议解析器，不能伪称数据校验通过。
+The toolkit does not contain sampling code tied to a particular MCU or RTOS. `decode_packets` decodes fixed packets using the caller's struct format, field names, sync bytes, timestamp field/frequency, and sequence field. It checks gaps, duplicates, resets, and wraps and produces the common recording format. It does not validate an unknown protocol's CRC, escaping, or frame-length rules. Use an existing protocol parser when these checks are needed and do not claim packet integrity without them.
 
-## 分析与展示
+## Analysis and display
 
-`summarize_recording` 返回通道范围、均值、样本和间隔，并核对完成清单摘要。`compare_recordings` 给出两份数据与均值差，不自动认定改动导致差异；AI 需检查负载、激励、采样条件和单位。
+`summarize_recording` returns channel ranges, means, sample counts, and intervals, and verifies the completion-manifest hash. `compare_recordings` returns both datasets and changes in means without attributing causation. Check load, stimulus, capture conditions, and units before interpreting a difference.
 
-`render_recording` 生成无需服务的离线 HTML，支持选择通道、缩放、拖动、光标、按记录时间回放及上升沿查找。最多100000个样本，保留原始值；更大文件先按明确窗口裁剪，不能为了显示悄悄丢峰值。图形不控制目标板。
+`render_recording` produces offline HTML with channel selection, zoom, pan, a cursor, replay by recorded time, and rising-edge search. It supports up to 100000 samples and preserves original values. Crop larger files to an explicit window rather than silently discarding peaks for display. The viewer does not control hardware.
 
-`export_rtt` 把 RTT/SystemView 记录中的字节顺序提取为原始二进制。`decode_systemview` 先寻找同步标记，缺少标记不猜帧边界；解码后输出事件、丢失计数和末尾残包字节数。decoder_complete 只描述本次解码的可见完整性，不能证明目标没有丢事件。具体 RTOS 使用要求见 rtos.md。
+`export_rtt` concatenates recorded RTT/SystemView bytes in order into raw binary. `decode_systemview` first searches for synchronization and does not guess boundaries when it is absent. It reports events, drop indicators, and trailing partial-packet bytes. decoder_complete describes visible decoder integrity, not proof that the target lost no events. See [rtos.md](rtos.md) for target requirements.
