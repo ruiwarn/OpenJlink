@@ -1,12 +1,14 @@
 # OpenJlink
 
-面向嵌入式开发者和 AI 的通用 J-Link CLI。提供内存与变量、烧录校验、RTT、故障现场、RTOS 事件、外设寄存器和证据分析能力。工程已有的构建系统、RTOS、测试入口和业务规则由开发任务决定。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-只需要 CLI。提供直接命令、JSON 调用和持久会话，不需要额外的工具协议服务。
+A general-purpose J-Link CLI for embedded developers and AI assistants. OpenJlink provides memory and variable access, programming verification, RTT, fault snapshots, RTOS event analysis, peripheral register inspection, and evidence capture. Each development task supplies the project's existing build system, RTOS, test entry points, and application rules.
 
-## 安装
+Use direct commands, JSON calls, or a persistent CLI session.
 
-要求 Python 3.10+，以及用户自行安装的 SEGGER J-Link Software Pack。本仓库不包含官方 DLL、探针固件、芯片 Flash 算法或厂商 SVD 文件。
+## Installation
+
+Requires Python 3.10+ and a separately installed SEGGER J-Link Software Pack. This repository does not distribute official DLLs, probe firmware, chip Flash algorithms, or vendor SVD files.
 
 ```text
 python -m pip install "openjlink[modbus] @ git+https://github.com/ruiwarn/OpenJlink.git"
@@ -15,18 +17,18 @@ openjlink --help
 openjlink schema
 ```
 
-也可下载源码后，在根目录执行：
+Alternatively, download the source and run these commands from its root directory:
 
 ```text
 python scripts/setup_runtime.py
 python scripts/run.py --help
 ```
 
-后者使用本目录自己的 `.venv`。作为 AI Skill 使用时，将本仓库安装到技能目录并执行相同初始化；入口是 [SKILL.md](SKILL.md)。
+This creates an isolated `.venv` in that directory. To use OpenJlink as an AI Skill, install the repository in your skills directory and run the same initialization. The skill entry point is [SKILL.md](SKILL.md).
 
-## 工程中使用
+## Using OpenJlink in a project
 
-不需要把工具代码复制进每个工程。在工程目录调用全局 CLI，或使用 Skill 中 `scripts/run.py` 的绝对路径。构建命令、镜像/ELF/SVD、目标型号、序列号和地址范围均显式传入。
+Install OpenJlink once and call the CLI from your project directory, or use the absolute path to the Skill's `scripts/run.py`. Build commands, image/ELF/SVD paths, target devices, probe serial numbers, and address ranges are supplied explicitly. Project firmware does not need to depend on OpenJlink or include a copy of its code.
 
 ```text
 openjlink --state-dir .openjlink-state inspect-environment
@@ -35,53 +37,53 @@ openjlink schema start_job
 openjlink call inspect_image --args @image-arguments.json
 ```
 
-示例镜像路径和地址须换成当前工程实际值。`--state-dir` 位于子命令前，用于本次任务的状态与任务记录；是否放入工程目录由调用者决定，不默认修改 `.gitignore`。
+Replace the example image path and address with the values for your project. Place `--state-dir` before the subcommand. It holds the current task's state and job records; you choose its location. OpenJlink does not modify your project's `.gitignore` automatically.
 
-需要连接后读取、RTT 或连续调试时，使用同一个持久进程：
+For connected reads, RTT, or a sequence of debugging operations, keep one persistent process open:
 
 ```text
 openjlink --state-dir .openjlink-state session
 ```
 
-输入每行一个 JSON 请求，输出每行一个即时响应：
+Send one JSON request per line and receive one immediate JSON response per line:
 
 ```json
 {"id":1,"operation":"ping","arguments":{}}
 {"id":2,"operation":"device_status","arguments":{}}
 ```
 
-这两条不连接目标。实际连接使用 `connect`，提供真实 `serial`、`device`、`interface`、`speed_khz`；后续操作继续写入该进程的标准输入。JSON 模式使用下划线操作名，直接命令使用连字符和命名参数。复杂列表/对象通过 JSON 或 `--args @file.json` 传入。
+These two requests do not connect to a target. To connect, call `connect` with the actual `serial`, `device`, `interface`, and `speed_khz`, then continue sending operations to the same process's standard input. JSON operation names use underscores; direct commands use hyphens and named arguments. Pass complex lists and objects through JSON or `--args @file.json`.
 
-单次命令执行完会关闭自身会话。不能将独立的 connect/read 命令当作同一连接。会话结束会等待已提交任务；采集应先请求 `cancel_capture` 并查询任务终态，不能靠关闭输入取消 Flash 操作。
+A single command closes its own session when it finishes. Separate connect/read processes do not share a connection. Ending a session waits for submitted jobs. Request `cancel_capture` and check the terminal job state before exiting a capture session; closing the input does not cancel a Flash operation.
 
-## 能做什么
+## Capabilities
 
-| 开发场景 | 操作 |
+| Development task | Operations |
 |---|---|
-| 连不上、选错探针、缺主机依赖 | inspect-environment、discover-probes、connect、probe-info |
-| 编译后下载并核对程序 | run-build、inspect-image、start-job、job-status、verify-image、check-heartbeat |
-| 查看 RAM、Flash、缓冲和配置 | read-memory、read-regions、dump-memory、write-memory、write-regions |
-| 按全局变量、结构体成员或数组定位 | load-symbols、search-symbols、type-info、read-variable、write-variable、symbolize |
-| 查看外设寄存器和位域 | load-peripherals、list-peripherals、read-peripherals |
-| 暂停、单步、断点、故障取证 | debug-control、breakpoint、core-registers、fault-snapshot |
-| 日志、二进制交互和连续记录 | rtt-start、rtt-channels、rtt-read、rtt-write、start-job、export-rtt |
-| 曲线、回放、遥测缺口、前后对比 | decode-packets、summarize-recording、compare-recordings、render-recording |
-| RTOS 线程与运行事件 | gdb-server-arguments、gdb-inspect、decode-systemview、analyze-events |
-| 串口、RS485 与协议回归 | serial-ports、serial-exchange、modbus、run-build |
+| Diagnose connection failures, select a probe, check host dependencies | inspect-environment, discover-probes, connect, probe-info |
+| Build, program, and verify firmware | run-build, inspect-image, start-job, job-status, verify-image, check-heartbeat |
+| Inspect RAM, Flash, buffers, and configuration | read-memory, read-regions, dump-memory, write-memory, write-regions |
+| Locate globals, structure members, and array elements | load-symbols, search-symbols, type-info, read-variable, write-variable, symbolize |
+| Inspect peripheral registers and bit fields | load-peripherals, list-peripherals, read-peripherals |
+| Halt, step, manage breakpoints, and capture faults | debug-control, breakpoint, core-registers, fault-snapshot |
+| Capture logs, exchange binary data, and record streams | rtt-start, rtt-channels, rtt-read, rtt-write, start-job, export-rtt |
+| Plot, replay, detect telemetry gaps, and compare recordings | decode-packets, summarize-recording, compare-recordings, render-recording |
+| Inspect RTOS threads and execution events | gdb-server-arguments, gdb-inspect, decode-systemview, analyze-events |
+| Run serial, RS485, and protocol regressions | serial-ports, serial-exchange, modbus, run-build |
 
-全部操作及真实签名以 `openjlink schema` 为准。更多流程见 [工程使用](references/setup.md)、[应用场景](references/scenarios.md)、[调试](references/debugging.md)、[采集](references/capture.md)、[RTOS](references/rtos.md) 和 [协议](references/protocol.md)。
+Run `openjlink schema` for the complete operation list and current signatures. Additional guides, currently in Chinese, cover [project setup](references/setup.md), [development scenarios](references/scenarios.md), [debugging](references/debugging.md), [capture](references/capture.md), [RTOS](references/rtos.md), and [protocols](references/protocol.md).
 
-## 结果与限制
+## Results and limitations
 
-写入、暂停、复位、下载和发送命令要求调用者已有授权并显式确认。任务 accepted 不等于 completed；结果 unknown 时查询原任务，不自动重放。Flash loader 的真实擦除范围还需按目标核对。
+Writes, halts, resets, programming, and command transmission require existing caller authorization and explicit confirmation. An `accepted` job is not yet `completed`. If a result is `unknown`, query the original job instead of replaying it automatically. Check the Flash loader's actual erase geometry for the target before programming.
 
-当前内存地址为 32 位；指令断点按 Thumb 使用；故障快照面向列出的 Cortex-M 架构。不能据此宣称覆盖所有 J-Link 支持的处理器。固定地址全局符号、单维数组和标量是当前 DWARF 范围。SVD 当前支持非 cluster 的寄存器/位域，读安全性依赖描述文件和厂商资料；不提供 SVD 写入。
+Memory addresses are currently 32-bit, instruction breakpoints use Thumb, and fault snapshots support the listed Cortex-M architectures. This does not establish support for every processor supported by J-Link. DWARF support covers fixed-address globals, one-dimensional arrays, and scalar values. SVD support currently covers non-cluster registers and bit fields; read safety depends on the description file and vendor documentation. SVD writes are not provided.
 
-采集为单拥有者、有界任务；RTT 读取会消耗目标缓冲。没有跨进程历史订阅、实时共享后台、触发前后环形采集、完整 RTOS 图形时间线或 SWO/ETM 采集。离线图中的上升沿查找不是硬件触发。细项和优先级见 [能力差距](references/coverage.md)。
+Capture uses one owner and bounded jobs. RTT reads consume the target buffer. Cross-process history subscriptions, a shared live backend, pre/post-trigger ring capture, a complete graphical RTOS timeline, and SWO/ETM capture are not implemented. Finding a rising edge in an offline plot is not a hardware trigger. See [coverage and remaining work](references/coverage.md) for details and priorities.
 
-J-Link V9/V11 不是完整产品型号。探针型号、驱动、芯片 loader、RTOS 插桩、负载与实际吞吐需要分别验收。主机时间不能代替目标采样时间，VREF 不能代替功率测量，回读相同不能代替运行或物理结果。
+J-Link V9/V11 identify hardware generations, not complete product models. Probe models, drivers, chip loaders, RTOS instrumentation, workload, and actual throughput require separate validation. Host timestamps do not replace target sampling timestamps, VREF does not measure power, and matching readback does not establish application or physical behavior.
 
-## 开发检查
+## Development checks
 
 ```text
 python -m pip install -e ".[test,modbus]"
@@ -89,8 +91,8 @@ python -m pytest -q
 ruff check scripts tests --select F,E9
 ```
 
-部分 ELF 回归使用 `arm-none-eabi-gcc`；缺少时会明确跳过。硬件测试不随安装或单元测试自动执行。软件回归与真实探针/目标板验收分开记录。
+Some ELF regressions use `arm-none-eabi-gcc` and are explicitly skipped when it is unavailable. Installation and unit tests do not automatically run hardware tests. Software regression results and real probe/target acceptance are recorded separately.
 
-## 许可
+## License
 
-OpenJlink 自有代码按 MIT 发布。第三方来源、依赖和修改说明见 [NOTICE](NOTICE)；保留的第三方许可在 [LICENSES](LICENSES)。本项目与 SEGGER 无隶属或背书关系。
+OpenJlink's original code is released under MIT. See [NOTICE](NOTICE) for third-party sources, dependencies, and modification details, and [LICENSES](LICENSES) for retained third-party licenses. OpenJlink is not affiliated with or endorsed by SEGGER.
