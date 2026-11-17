@@ -1,0 +1,85 @@
+.gitattributes
+  s_9df3505663b2f7::t_0ffd2dd2de644c 1
+scripts/run.py
+  s_9df3505663b2f7::t_83d68d8b682f7e 1-12
+tests/test_interfaces.py
+  s_9df3505663b2f7::t_83d68d8b682f7e 1-214
+LICENSES/MKLink-MIT.txt
+  s_9df3505663b2f7::t_6f27524f34c935 1-21
+SKILL.md
+  s_9df3505663b2f7::t_09fd5421fec6d0 1-46
+agents/openai.yaml
+  s_9df3505663b2f7::t_7c7124116effa1 1-6
+pyproject.toml
+  s_9df3505663b2f7::t_9d7e4941a720f3 1-35
+references/capture.md
+  s_9df3505663b2f7::t_ff542761f1bf89 1-27
+references/coverage.md
+  s_9df3505663b2f7::t_9017fa1cadb0c6 1-55
+references/debugging.md
+  s_9df3505663b2f7::t_c7dd7d6d1dbeb5 1-33
+references/protocol.md
+  s_9df3505663b2f7::t_8e16fbc5b55950 1-11
+references/rtos.md
+  s_9df3505663b2f7::t_b6f5755cbf6092 1-31
+references/scenarios.md
+  s_9df3505663b2f7::t_dc3a9ececdfdb2 1-24
+references/setup.md
+  s_9df3505663b2f7::t_0e19b521cd157c 1-45
+references/sources.md
+  s_9df3505663b2f7::t_10f483c7309c8d 1-10
+scripts/openjlink.py
+  s_9df3505663b2f7::t_36f2468f2620ca 1-3
+scripts/openjlink/__init__.py
+  s_9df3505663b2f7::t_a85cc7c160ad6d 1
+scripts/openjlink/__main__.py
+  s_9df3505663b2f7::t_f5ee48f65e27ca 1-3
+scripts/openjlink/analysis/report.py
+  s_9df3505663b2f7::t_1765060f46e35d 1-136
+scripts/openjlink/analysis/systemview.py
+  s_9df3505663b2f7::t_2300ccfa5630a7 1-363
+scripts/openjlink/analysis/viewer.html
+  s_9df3505663b2f7::t_6b792e68e43fe7 1-27
+scripts/openjlink/api.py
+  s_9df3505663b2f7::t_3939001cc7d648 1-53
+scripts/openjlink/capture/recording.py
+  s_9df3505663b2f7::t_b36c3e6aabfd5f 1-102
+scripts/openjlink/capture/telemetry.py
+  s_9df3505663b2f7::t_0eb45bd88327df 1-76
+scripts/openjlink/cli.py
+  s_9df3505663b2f7::t_1129adecadc524 1-91
+scripts/openjlink/common.py
+  s_9df3505663b2f7::t_ba760889f7bb6f 1-110
+scripts/openjlink/debug/gdb.py
+  s_9df3505663b2f7::t_2ce2c8d1d5438d 1-41
+scripts/openjlink/hardware/probe.py
+  s_9df3505663b2f7::t_bb1acd53c2c808 1-26
+scripts/openjlink/host/process.py
+  s_9df3505663b2f7::t_5aad0c1fee21d5 1-43
+scripts/openjlink/protocol/serial.py
+  s_9df3505663b2f7::t_daed47ae393655 1-90
+scripts/openjlink/session.py
+  s_9df3505663b2f7::t_62ac1f77a98e4b 1-620
+scripts/openjlink/symbols/elf.py
+  s_9df3505663b2f7::t_45c25adbc48d5e 1-210
+scripts/setup_runtime.py
+  s_9df3505663b2f7::t_742aa714906d01 1-11
+tests/test_workbench.py
+  s_9df3505663b2f7::t_9470639fd074a7 1-426
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b95c698e1172852c0fe5598abef3113ebcfffc71",
+  "prompts": {},
+  "sessions": {
+    "s_9df3505663b2f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e3a4-1a90-7ae1-9262-c8022b667d94",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ruiwarn <162423525+ruiwarn@users.noreply.github.com>"
+    }
+  }
+}
