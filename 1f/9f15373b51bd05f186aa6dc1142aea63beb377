@@ -1,0 +1,21 @@
+README.zh-CN.md
+  s_9df3505663b2f7::t_88f4a4b51ff25f 1-98
+README.md
+  s_9df3505663b2f7::t_79de74a6ee88d7 3,5,7,9-11,20,27,29,31,40,42,48,55,57,59,61,63-72,74,76,78,80,82,84,86,94,96,98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "1f9f15373b51bd05f186aa6dc1142aea63beb377",
+  "prompts": {},
+  "sessions": {
+    "s_9df3505663b2f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e3a4-1a90-7ae1-9262-c8022b667d94",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ruiwarn <162423525+ruiwarn@users.noreply.github.com>"
+    }
+  }
+}
