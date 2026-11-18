@@ -1,0 +1,25 @@
+SKILL.md
+  s_9df3505663b2f7::t_876cef8d6fbac4 12
+references/setup.md
+  s_9df3505663b2f7::t_876cef8d6fbac4 7,9-17
+README.md
+  s_9df3505663b2f7::t_876cef8d6fbac4 13-14,16,22-24,31
+README.zh-CN.md
+  s_9df3505663b2f7::t_876cef8d6fbac4 13-14,16,22-24,31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "270b551bf010bc188638597f7fbfa4e6e10b51d3",
+  "prompts": {},
+  "sessions": {
+    "s_9df3505663b2f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e3a4-1a90-7ae1-9262-c8022b667d94",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ruiwarn <162423525+ruiwarn@users.noreply.github.com>"
+    }
+  }
+}
