@@ -42,6 +42,7 @@ def analyze_events(events: list[dict], tick_hz: float | None = None):
         number(tick_hz, 1, 1e12)
     current, stack, previous, first = None, [], None, None
     totals, slices, overflows, unknown = {}, {}, 0, 0.0
+    unmatched_exits = 0
     names = {}
     for event in events:
         if type(event.get("t_us")) in (int, float):
@@ -72,6 +73,7 @@ def analyze_events(events: list[dict], tick_hz: float | None = None):
             stack.append(current)
             current = "isr:" + str(event.get("isr_id", event.get("id", "unknown")))
         elif kind == "isr_exit":
+            unmatched_exits += int(not stack)
             current = stack.pop() if stack else None
         elif kind == "overflow":
             overflows += 1
@@ -83,7 +85,8 @@ def analyze_events(events: list[dict], tick_hz: float | None = None):
     return {"duration_s": duration, "actors": {k: {"name": names.get(k, k), "seconds": v,
             "percent": 100 * v / duration if duration else None, "max_observed_interval_s": max(slices[k])} for k, v in totals.items()},
             "unknown_seconds": unknown, "overflow_events": overflows, "open_isr_depth": len(stack),
-            "complete": overflows == 0 and not stack, "deadlock_or_priority_inversion": "not_inferred",
+            "unmatched_isr_exits": unmatched_exits, "complete": overflows == 0 and not stack and not unmatched_exits,
+            "deadlock_or_priority_inversion": "not_inferred",
             "window": "first through last event; no extrapolation; ISR time excluded from task time"}
 
 

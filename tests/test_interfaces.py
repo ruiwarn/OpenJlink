@@ -5,9 +5,11 @@ import struct
 import subprocess
 import sys
 import threading
+import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 import pytest
+from openjlink import __version__
 from openjlink.capture.telemetry import decode_packets
 from openjlink.analysis.report import decode_systemview, render_recording, summarize_recording
 from openjlink.protocol.serial import serial_exchange, modbus
@@ -63,6 +65,51 @@ def test_modbus_protocol_ack_and_zero_retries(monkeypatch):
     assert [f["direction"] for f in result["frames"]] == ["tx", "rx"]
     with pytest.raises(InputError):
         modbus("mock-port", 6, 65535, values=[1, 2], confirm=True)
+
+
+@pytest.mark.parametrize("mode", ["direct", "call", "session"])
+@pytest.mark.parametrize("failure", [False, True])
+def test_modbus_cli_reports_protocol_failure_and_keeps_session(tmp_path, mode, failure):
+    child = textwrap.dedent('''
+        import sys
+        from types import SimpleNamespace
+        import pymodbus.client
+        failure = bool(int(sys.argv.pop(1)))
+        class Client:
+            def __init__(self, port, **kwargs):
+                assert kwargs["retries"] == 0
+                self.trace = kwargs["trace_packet"]
+            def connect(self):
+                return True
+            def close(self):
+                pass
+            def read_holding_registers(self, address, count, device_id):
+                self.trace(True, b"request")
+                self.trace(False, b"error" if failure else b"reply")
+                return SimpleNamespace(isError=lambda: failure, registers=[123])
+        pymodbus.client.ModbusSerialClient = Client
+        from openjlink.cli import main
+        raise SystemExit(main())
+    ''')
+    values = {"port": "mock-port", "function": 3, "address": 0}
+    arguments = ["modbus", "--port", "mock-port", "--function", "3", "--address", "0"]
+    request = None
+    if mode == "call":
+        arguments = ["call", "modbus", "--args", json.dumps(values)]
+    elif mode == "session":
+        arguments = ["session"]
+        request = json.dumps({"id": 1, "operation": "modbus", "arguments": values}) + '\n{"id":2,"operation":"ping"}\n'
+    result = subprocess.run([sys.executable, "-c", child, str(int(failure)), "--state-dir", str(tmp_path / "state"), *arguments],
+                            input=request, capture_output=True, text=True, encoding="utf-8", timeout=10)
+    responses = [json.loads(line) for line in result.stdout.splitlines()]
+    assert result.returncode == (int(failure) if mode != "session" else 0), result.stderr
+    response = responses[0]
+    assert response["ok"] is not failure
+    if mode == "session":
+        assert response["id"] == 1 and responses[1]["id"] == 2 and responses[1]["ok"]
+        response = response["result"]
+    assert [frame["direction"] for frame in response["frames"]] == ["tx", "rx"]
+    assert bytes.fromhex(response["frames"][1]["hex"]) == (b"error" if failure else b"reply")
 
 
 def test_telemetry_sequence_wrap_plot_and_manifest(tmp_path):
@@ -180,6 +227,7 @@ def test_direct_cli_and_distribution_identity(tmp_path):
     root = Path(__file__).parents[1]
     metadata = distribution("openjlink")
     assert metadata.metadata["Name"] == "openjlink"
+    assert metadata.version == __version__
     assert {e.name: e.value for e in metadata.entry_points if e.group == "console_scripts"} == {"openjlink": "openjlink.cli:main"}
     assert "name: openjlink\n" in (root / "SKILL.md").read_text(encoding="utf-8")
     assert not any("mcp" in dependency.lower() for dependency in metadata.requires)

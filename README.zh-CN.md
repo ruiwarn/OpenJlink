@@ -13,7 +13,7 @@
 已安装 uv 时，通过独立工具环境安装用户级全局命令：
 
 ```text
-uv tool install "openjlink[modbus] @ git+https://github.com/ruiwarn/OpenJlink.git"
+uv tool install --upgrade "openjlink[modbus] @ git+https://github.com/ruiwarn/OpenJlink.git@v0.1.1"
 openjlink --version
 openjlink --help
 openjlink schema

@@ -40,6 +40,7 @@ class Workbench:
         self.quarantine = False
         self.breakpoints = set()
         self.job_active = None
+        self.unpersisted_job = None
         self.cancel = threading.Event()
 
     def close(self):
@@ -188,9 +189,10 @@ class Workbench:
         if self.peripherals is None:
             raise InputError("Load an explicit SVD first")
         registers = self.peripherals.select(names)
-        snapshot = self.read_regions([{"address": r["address"], "size": r["bits"] // 8} for r in registers])
+        probe = self.require_probe()
+        readings = [timed_read(probe, r["address"], r["bits"] // 8, r["bits"], self.peripherals.byte_order) for r in registers]
         return {"source": self.peripherals.source, "device": self.peripherals.device,
-                "registers": [{**self.peripherals.decode(r, v["hex"]), **v} for r, v in zip(registers, snapshot["regions"])],
+                "registers": [{**self.peripherals.decode(r, v["hex"]), **v} for r, v in zip(registers, readings)],
                 "atomic": False, "safety_basis": "SVD declarations only; caller must verify vendor manual and revision"}
 
     def read_regions(self, regions: list[dict]):
@@ -440,6 +442,8 @@ class Workbench:
 
     def start_job(self, operation: str, arguments: dict, request_id: str, confirm: bool = False):
         approval(confirm)
+        if self.unpersisted_job:
+            raise InputError("Job persistence failed; inspect the original job and restore storage before restarting; do not replay")
         if operation not in ("program", "erase", "reset", "capture"):
             raise InputError("Job operation must be program/erase/reset/capture")
         if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
@@ -473,8 +477,8 @@ class Workbench:
 
     def _run_job(self, job_id, operation, arguments):
         with self.gate:
-            self._save_job(job_id, "running", None)
             try:
+                self._save_job(job_id, "running", None)
                 result = getattr(self, "_" + operation)(**arguments)
                 state = "completed"
             except (InputError, TypeError) as exc:
@@ -482,8 +486,14 @@ class Workbench:
             except Exception as exc:
                 self.quarantine = operation != "capture"
                 result, state = {"error": str(exc), "retry_safe": False}, "unknown"
-            self._save_job(job_id, state, result)
-            self.job_active = None
+            try:
+                self._save_job(job_id, state, result)
+            except Exception as exc:
+                self.quarantine = True
+                self.unpersisted_job = {"job_id": job_id, "state": "unknown", "persisted": False, "retry_safe": False,
+                                        "result": {"operation_result": result, "persistence_error": str(exc), "retry_safe": False}}
+            finally:
+                self.job_active = None
 
     def _save_job(self, job_id, state, result):
         with self.db_lock:
@@ -491,6 +501,8 @@ class Workbench:
             self.db.commit()
 
     def job_status(self, job_id: str):
+        if self.unpersisted_job and self.unpersisted_job["job_id"] == job_id:
+            return self.unpersisted_job
         with self.db_lock:
             row = self.db.execute("SELECT state,result FROM jobs WHERE id=?", (job_id,)).fetchone()
         return {"job_id": job_id, "state": row[0] if row else "unknown", "result": json.loads(row[1]) if row and row[1] else None, "retry_safe": False}

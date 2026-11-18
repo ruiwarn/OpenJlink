@@ -72,15 +72,16 @@ def main():
         workbench = Workbench(args.state_dir)
         try:
             if args.mode != "session":
-                emit(call(workbench, args.operation, values))
-                return 0
+                result = call(workbench, args.operation, values)
+                emit(result)
+                return int(isinstance(result, dict) and result.get("ok") is False)
             for line in sys.stdin:
                 request_id = None
                 try:
                     request = json.loads(line)
                     request_id = request.get("id")
                     result = call(workbench, request["operation"], request.get("arguments", {}))
-                    emit({"id": request_id, "ok": True, "result": result})
+                    emit({"id": request_id, "ok": not (isinstance(result, dict) and result.get("ok") is False), "result": result})
                 except Exception as exc:
                     emit({"id": request_id, "ok": False, "error": type(exc).__name__, "message": str(exc), "retry_safe": False})
         finally:

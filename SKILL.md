@@ -13,6 +13,8 @@ Use the globally installed `openjlink` command. If it is missing, follow the use
 
 Read the project's rules first and reuse its existing build, programming, and test entry points. Identify the exact target, probe serial number, image/ELF/SVD sources, and actions permitted to affect the target. Ask only for information needed by the current task that is still missing.
 
+Establish the required baseline before applying test stimuli. If it fails, preserve the observations and mark dependent scenarios blocked until the cause is resolved. Define what each observed variable proves; an internal counter does not independently establish a physical output. Verify changed settings and cleanup by reading back the required state.
+
 Use `schema` and each subcommand's `--help` as the parameter authority. Direct commands use hyphens; JSON operation names use underscores. Offline checks can run independently. Connected multi-step operations require one persistent `session` process; separate connect/read processes do not share a connection.
 
 ## Route from the problem

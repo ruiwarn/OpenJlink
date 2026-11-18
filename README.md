@@ -13,7 +13,7 @@ Requires Python 3.10+ and a separately installed SEGGER J-Link Software Pack. Th
 With uv installed, install a user-wide command in an isolated tool environment:
 
 ```text
-uv tool install "openjlink[modbus] @ git+https://github.com/ruiwarn/OpenJlink.git"
+uv tool install --upgrade "openjlink[modbus] @ git+https://github.com/ruiwarn/OpenJlink.git@v0.1.1"
 openjlink --version
 openjlink --help
 openjlink schema

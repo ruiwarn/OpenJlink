@@ -100,11 +100,17 @@ class FileLock:
         self.close()
 
 
-def timed_read(probe, address, size):
+def timed_read(probe, address, size, bits=8, byte_order="little"):
     memory_range(address, size, 16 * 1024 * 1024)
+    if bits not in (8, 16, 32) or byte_order not in ("little", "big"):
+        raise InputError("Use 8/16/32-bit access and little/big byte order")
+    width = bits // 8
+    if address % width or size % width:
+        raise InputError("Memory range must align with bus access width")
     start = time.monotonic_ns()
-    data = bytes(probe.memory_read8(address, size))
-    if len(data) != size:
-        raise RuntimeError(f"Short read: requested {size}, received {len(data)}")
+    values = getattr(probe, f"memory_read{bits}")(address, size // width)
+    if len(values) * width != size:
+        raise RuntimeError(f"Short read: requested {size}, received {len(values) * width}")
+    data = bytes(values) if width == 1 else b"".join(value.to_bytes(width, byte_order) for value in values)
     return {"address": address, "size": size, "hex": data.hex(), "start_ns": start,
             "end_ns": time.monotonic_ns(), "clock": "host_monotonic"}

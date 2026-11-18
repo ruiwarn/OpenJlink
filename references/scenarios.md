@@ -2,6 +2,8 @@
 
 Use this table to discover suitable capabilities, not as a list of mandatory actions. Choose the smallest observation that addresses the problem and preserve the project's existing entry points and constraints.
 
+For controlled experiments, check baseline state, competing causes, stimulus acknowledgement, and recovery before interpreting changes. Record the observed symbol/address and its relationship to the intended application or physical result. If a baseline or required setting cannot be verified, mark dependent assertions blocked. Periodic sparse polling can miss transitions or repeatedly sample the same phase; choose an observation window and sampling method from the project's timing requirements. Read back restored settings and final state even when the test fails.
+
 | Scenario | Suggested workflow | Required inputs and inference limits |
 |---|---|---|
 | Bring up a new project | Project rules -> inspect_environment -> confirm target/artifacts -> connect only when needed | Do not require a common build system or default to the first probe |

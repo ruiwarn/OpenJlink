@@ -7,7 +7,7 @@ Requires Python 3.10+ and a separately installed SEGGER J-Link Software Pack. Pr
 Install a persistent user-wide command with uv. Its tool environment keeps dependencies separate from project and system Python packages:
 
 ```text
-uv tool install "openjlink[modbus] @ git+https://github.com/ruiwarn/OpenJlink.git"
+uv tool install --upgrade "openjlink[modbus] @ git+https://github.com/ruiwarn/OpenJlink.git@v0.1.1"
 openjlink --version
 openjlink --help
 ```
@@ -44,7 +44,11 @@ For development, continue sending connect, load_symbols, read_variable, and othe
 
 A finite batch can supply newline JSON through a file or pipe. Interactive AI use keeps both input and output pipes open. Output is flushed immediately and does not require closing stdin. Protocol and hardware errors return ok=false. A failed single call exits nonzero; a session continues accepting requests, so callers must inspect ok for every response.
 
+Client wrappers must correlate response IDs, enforce a task-appropriate response deadline, and continuously drain stderr or redirect it to a log. A timeout does not establish that an operation did not execute. Modbus error responses retain their frames in the result; direct/JSON calls exit nonzero, and session responses set the outer ok=false while accepting later requests. Inspect operation-specific completion fields as well: a successful call can report a partial RTT write, a failed build, or an unfinished job.
+
 Closing input ends the session and waits for submitted jobs. Query their terminal state first. Capture can request cancel_capture; closing a process cannot undo hardware writes. Long-job status persists in state_dir. Only one tool process may own that directory at a time; changing directories does not bypass the probe lock.
+
+If saving a job result fails, job_status reports state=unknown, persisted=false, and a persistence_error while the process remains alive. The session blocks new jobs, including submission under a different ID. Preserve the original job ID and inspect target effects; restore storage before restarting. Restarting cannot recover an unpersisted result and does not authorize replaying an unknown job.
 
 ## Local information and adaptation
 

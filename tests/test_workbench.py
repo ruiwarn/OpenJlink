@@ -2,6 +2,7 @@ import ast
 import io
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
@@ -41,6 +42,10 @@ class Probe:
     def memory_read8(self, address, size):
         self.reads.append((address, size))
         return [self.mem.get(address + i, 0) for i in range(size)]
+
+    def memory_read32(self, address, count):
+        self.reads.append((address, count * 4))
+        return [int.from_bytes(bytes(self.mem.get(address + i * 4 + j, 0) for j in range(4)), "little") for i in range(count)]
 
     def memory_write8(self, address, data):
         self.writes.append((address, data))
@@ -260,6 +265,48 @@ def test_unknown_job_never_replays_and_survives_restart(tmp_path):
         reopened.close()
 
 
+@pytest.mark.parametrize("failure_state", ["running", "completed"])
+def test_journal_failure_reports_unknown_and_blocks_replay(tmp_path, monkeypatch, failure_state):
+    probe = Probe()
+    erased = []
+    probe.erase = lambda: erased.append(True)
+    state_dir = tmp_path / "journal"
+    w = Workbench(state_dir, factory=lambda dll: probe)
+    w.connect(765432, "Device")
+    save = w._save_job
+    failed = False
+    def failing_save(job_id, state, result):
+        nonlocal failed
+        if failed or state == failure_state:
+            failed = True
+            raise sqlite3.OperationalError("database or disk is full")
+        save(job_id, state, result)
+    monkeypatch.setattr(w, "_save_job", failing_save)
+    try:
+        w.start_job("erase", {"device": "Device"}, "disk-full", True)
+        w.executor.submit(lambda: None).result(timeout=3)
+        result = w.job_status("disk-full")
+        assert result["state"] == "unknown" and result["persisted"] is False
+        assert "disk is full" in result["result"]["persistence_error"]
+        assert w.job_active is None and w.quarantine
+        assert len(erased) == int(failure_state == "completed")
+        w.disconnect()
+        w.connect(765432, "Device")
+        for job_id in ("disk-full", "new-id"):
+            with pytest.raises(InputError):
+                w.start_job("erase", {"device": "Device"}, job_id, True)
+    finally:
+        w.close()
+    reopened = Workbench(state_dir, factory=lambda dll: probe)
+    try:
+        reopened.connect(765432, "Device")
+        result = reopened.start_job("erase", {"device": "Device"}, "disk-full", True)
+        assert result["state"] == "unknown" and result["reused"]
+        assert len(erased) == int(failure_state == "completed")
+    finally:
+        reopened.close()
+
+
 def test_capture_recording_manifest_and_plot(bench, tmp_path):
     w, p = bench
     output = tmp_path / "capture.jsonl"
@@ -297,6 +344,14 @@ def test_event_time_validation_and_overflow():
         analyze_events([{"kind": "idle", "t_us": 2}, {"kind": "idle", "t_us": 1}])
     result = analyze_events([{"kind": "idle", "t_ticks": 0}, {"kind": "overflow", "t_ticks": 10}], 1000)
     assert result["complete"] is False
+
+
+@pytest.mark.parametrize("matched", [False, True])
+def test_event_analysis_detects_unmatched_isr_exit(matched):
+    first = {"kind": "isr_enter", "isr_id": 3, "t_us": 0} if matched else {"kind": "idle", "t_us": 0}
+    result = analyze_events([first, {"kind": "isr_exit", "t_us": 10}, {"kind": "idle", "t_us": 20}])
+    assert result["unmatched_isr_exits"] == int(not matched)
+    assert result["complete"] is matched
 
 
 def test_systemview_decoder_handles_fragmented_stream():
@@ -412,6 +467,35 @@ def test_svd_rejects_entities_and_large_expansion(bench, svd_fixture):
     with pytest.raises(InputError):
         w.load_peripherals(str(svd_fixture), "little")
     assert not probe.reads
+
+
+@pytest.mark.parametrize("bits", [8, 16, 32])
+@pytest.mark.parametrize("byte_order", ["little", "big"])
+def test_svd_preserves_bus_access_width(bench, svd_fixture, monkeypatch, bits, byte_order):
+    w, probe = bench
+    svd_fixture.write_text(svd_fixture.read_text().replace("<name>CTRL</name>", f"<name>CTRL</name><size>{bits}</size>"))
+    w.load_peripherals(str(svd_fixture), byte_order)
+    reads = []
+    value = {8: 0x50, 16: 0x1250, 32: 0x12345650}[bits]
+    def read(address, count):
+        reads.append((address, count))
+        return [value]
+    def wrong_width(*args):
+        raise AssertionError("Wrong bus access width")
+    for width in (8, 16, 32):
+        monkeypatch.setattr(probe, f"memory_read{width}", read if width == bits else wrong_width, raising=False)
+    result = w.read_peripherals(["TEST.CTRL"])["registers"][0]
+    assert reads == [(0x40000000, 1)]
+    assert result["value"] == value and result["fields"]["MODE"] == 5
+    assert result["hex"] == value.to_bytes(bits // 8, byte_order).hex()
+
+
+def test_svd_rejects_short_word_read(bench, svd_fixture, monkeypatch):
+    w, probe = bench
+    w.load_peripherals(str(svd_fixture), "little")
+    monkeypatch.setattr(probe, "memory_read32", lambda address, count: [], raising=False)
+    with pytest.raises(RuntimeError, match="Short read"):
+        w.read_peripherals(["TEST.CTRL"])
 
 
 def test_peripheral_capture_is_replayable(bench, svd_fixture, tmp_path):

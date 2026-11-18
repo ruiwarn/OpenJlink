@@ -20,7 +20,7 @@ For FreeRTOS, check trace macros for its version, SEGGER_SYSVIEW_Config_FreeRTOS
 
 The target must generate events before the corresponding RTT channel can be captured, exported with export_rtt, and decoded with decode_systemview. A supplied tick_hz must describe the project's actual event clock, not an assumed CPU nominal frequency. Decoder provenance and scope are in [sources.md](sources.md); validation does not cover all recent SystemView/board combinations.
 
-`analyze_events` accepts decoded kind/t_us events, or t_ticks with an explicit frequency. It accounts for exclusive task and nested-ISR time, reports unknown intervals separately, and marks overflow as incomplete. Its window spans only the first through last event, without extrapolating unfinished trailing activity. A maximum observed interval is not a complete task response latency.
+`analyze_events` accepts decoded kind/t_us events, or t_ticks with an explicit frequency. It accounts for exclusive task and nested-ISR time, reports unknown intervals separately, and marks overflow, open ISR nesting, and unmatched ISR exits as incomplete. unmatched_isr_exits counts exits without a corresponding entry. Its window spans only the first through last event, without extrapolating unfinished trailing activity. A maximum observed interval is not a complete task response latency.
 
 Validate using known periodic tasks, a long ISR, nested ISRs, blocking/wakeup, idle periods, event overflow, timestamp wrap, and target restart. Without ready/blocked, wait-object, or lock-owner evidence, a long absence of execution does not establish deadlock or priority inversion.
 
