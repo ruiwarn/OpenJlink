@@ -71,6 +71,16 @@ def inspect_image(path: str, base_address: int | None = None):
             "programmed_bytes": sum(len(d) for a, d in segments), "hardware_accessed": False}
 
 
+def _attribute_owner(die, name):
+    visited = set()
+    while name not in die.attributes:
+        if die.offset in visited or "DW_AT_specification" not in die.attributes:
+            return None
+        visited.add(die.offset)
+        die = die.get_DIE_from_attribute("DW_AT_specification")
+    return die
+
+
 class Symbols:
     def __init__(self, path):
         self.info = file_info(path)
@@ -80,8 +90,11 @@ class Symbols:
         if self.dwarf:
             for cu in self.dwarf.iter_CUs():
                 for die in cu.iter_DIEs():
-                    if die.tag == "DW_TAG_variable" and "DW_AT_name" in die.attributes and "DW_AT_location" in die.attributes:
-                        name = die.attributes["DW_AT_name"].value.decode(errors="replace")
+                    if die.tag != "DW_TAG_variable" or "DW_AT_location" not in die.attributes:
+                        continue
+                    owner = _attribute_owner(die, "DW_AT_name")
+                    if owner is not None:
+                        name = owner.attributes["DW_AT_name"].value.decode(errors="replace")
                         self.variables.setdefault(name, []).append(die)
 
     def current(self):
@@ -89,7 +102,10 @@ class Symbols:
             raise InputError("Symbol source changed; reload symbols and verify the image")
 
     def type_die(self, die):
-        die = die.get_DIE_from_attribute("DW_AT_type")
+        owner = _attribute_owner(die, "DW_AT_type")
+        if owner is None:
+            raise InputError("Variable or member type unavailable")
+        die = owner.get_DIE_from_attribute("DW_AT_type")
         while die.tag in ("DW_TAG_typedef", "DW_TAG_const_type", "DW_TAG_volatile_type", "DW_TAG_restrict_type"):
             die = die.get_DIE_from_attribute("DW_AT_type")
         return die
@@ -118,7 +134,7 @@ class Symbols:
         if len(matches) != 1:
             raise InputError("Variable missing or ambiguous; optimized/local variables are not guessed")
         die = matches[0]
-        ops = DWARFExprParser(self.dwarf.structs).parse_expr(die.attributes["DW_AT_location"].value)
+        ops = DWARFExprParser(die.cu.structs).parse_expr(die.attributes["DW_AT_location"].value)
         if len(ops) != 1 or ops[0].op_name != "DW_OP_addr":
             raise InputError("Variable has no fixed memory address")
         address = ops[0].args[0]

@@ -368,7 +368,15 @@ def elf_fixture(tmp_path, request):
     if not compiler:
         pytest.skip("Optional ELF fixture requires an Arm GCC compiler")
     source = tmp_path / "fixture.c"
-    source.write_text('struct Config { int value; float scale; }; volatile struct Config config={7,1.5f}; volatile unsigned short values[3]={1,2,3}; void _start(void) { for (;;) {} }', encoding="utf-8")
+    source.write_text(
+        "struct Config { int value; float scale; };\n"
+        "volatile struct Config config = {7, 1.5f};\n"
+        "volatile unsigned short values[3] = {1, 2, 3};\n"
+        "extern volatile unsigned long counter;\n"
+        "volatile unsigned long counter;\n"
+        "void _start(void) { for (;;) {} }\n",
+        encoding="utf-8",
+    )
     output = tmp_path / "fixture.elf"
     subprocess.run([compiler, "-g", f"-gdwarf-{request.param}", "-O0", "-nostdlib", "-mcpu=cortex-m3", "-mthumb", "-Wl,-Ttext=0x1000", "-Wl,-Tdata=0x20000000", str(source), "-o", str(output)], check=True, capture_output=True)
     return output
@@ -394,6 +402,16 @@ def test_real_elf_members_arrays_and_stale_symbols(elf_fixture, bench):
     elf_fixture.write_bytes(elf_fixture.read_bytes() + b"x")
     with pytest.raises(InputError):
         w.read_variable("config.value")
+
+
+def test_gcc_global_defined_after_extern(elf_fixture, bench):
+    w, probe = bench
+    w.load_symbols(str(elf_fixture))
+    assert w.search_symbols("counter")["names"] == ["counter"]
+    metadata = w.type_info("counter")
+    assert metadata["size"] == 4 and metadata["encoding"] == 7
+    probe.memory_write8(metadata["address"], [0x78, 0x56, 0x34, 0xF2])
+    assert w.read_variable("counter")["value"] == 0xF2345678
 
 
 def test_hex_preserves_holes_and_rejects_checksum(tmp_path):
