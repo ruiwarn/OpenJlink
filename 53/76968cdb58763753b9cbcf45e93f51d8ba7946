@@ -1,0 +1,22 @@
+tests/test_workbench.py
+  s_9df3505663b2f7::t_e45fc44dcd59e1 371-379,407-414
+  s_9df3505663b2f7::t_16ee18fca762c1 415-416
+scripts/openjlink/symbols/elf.py
+  s_9df3505663b2f7::t_4f39d6bc8b2a2a 74-83,93-97,105-108,137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5376968cdb58763753b9cbcf45e93f51d8ba7946",
+  "prompts": {},
+  "sessions": {
+    "s_9df3505663b2f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e3a4-1a90-7ae1-9262-c8022b667d94",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "ruiwarn <162423525+ruiwarn@users.noreply.github.com>"
+    }
+  }
+}
