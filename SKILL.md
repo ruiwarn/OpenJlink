@@ -9,7 +9,7 @@ Provide reusable CLI tools and debugging methods. Obtain the chip, RTOS, build e
 
 ## Project use
 
-Run `python scripts/setup_runtime.py` once from this Skill's root, then invoke `scripts/run.py` by its absolute path. An existing package installation can use `openjlink` directly. Projects do not need to install Python dependencies, copy the tool, change their build system, or connect to another service. See [setup.md](references/setup.md) for commands, JSON calls, and persistent sessions.
+Use the globally installed `openjlink` command. If it is missing, follow the user-wide installation in [setup.md](references/setup.md), then verify it from an unrelated directory and a fresh shell without activating an environment. A Skill-local `.venv` or `scripts/run.py` alone does not complete global installation. Keep runtime dependencies isolated from project and system Python packages. Projects do not need to copy the tool, change their build system, or connect to another service.
 
 Read the project's rules first and reuse its existing build, programming, and test entry points. Identify the exact target, probe serial number, image/ELF/SVD sources, and actions permitted to affect the target. Ask only for information needed by the current task that is still missing.
 

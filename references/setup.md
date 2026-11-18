@@ -4,9 +4,17 @@ Requires Python 3.10+ and a separately installed SEGGER J-Link Software Pack. Pr
 
 ## Install once, use across projects
 
-Run `python scripts/setup_runtime.py` from the source root to install runtime dependencies in its own `.venv`. From any project, invoke `python <absolute-OpenJlink-directory>/scripts/run.py ...`. Stop on download failure instead of modifying the system Python environment.
+Install a persistent user-wide command with uv. Its tool environment keeps dependencies separate from project and system Python packages:
 
-Alternatively, install the repository in a Python environment you select and use `openjlink`. Skill locations can differ across Windows, Linux, and macOS. Resolve the entry point from this Skill's actual installation directory; do not place one machine's absolute path in shared project rules.
+```text
+uv tool install "openjlink[modbus] @ git+https://github.com/ruiwarn/OpenJlink.git"
+openjlink --version
+openjlink --help
+```
+
+If uv reports that its executable directory is missing from PATH, run `uv tool update-shell` and open a new shell. Verify command discovery and execution from a directory unrelated to the source or Skill, without environment activation. Do not report global installation complete when only an absolute Skill path or a private `.venv` works. Do not replace an unrelated command with the same name without checking its owner.
+
+For a source-development fallback, `python scripts/setup_runtime.py` creates the Skill's private `.venv`, and `python <absolute-OpenJlink-directory>/scripts/run.py ...` uses it. This fallback does not install a global command. Skill locations can differ across Windows, Linux, and macOS; resolve this fallback from the actual installation directory rather than hardcoding one machine's path. Stop on installation failure instead of modifying system Python packages.
 
 An AI task can read the current project's rules, use OpenJlink through its CLI, verify the actual build and target information, then perform the requested observation and save data in the task directory. No per-project Skill installation is required.
 

@@ -10,21 +10,25 @@
 
 要求 Python 3.10+，以及用户自行安装的 SEGGER J-Link Software Pack。本仓库不包含官方 DLL、探针固件、芯片 Flash 算法或厂商 SVD 文件。
 
+已安装 uv 时，通过独立工具环境安装用户级全局命令：
+
 ```text
-python -m pip install "openjlink[modbus] @ git+https://github.com/ruiwarn/OpenJlink.git"
+uv tool install "openjlink[modbus] @ git+https://github.com/ruiwarn/OpenJlink.git"
 openjlink --version
 openjlink --help
 openjlink schema
 ```
 
-也可下载源码后，在根目录执行：
+如果 uv 提示命令目录不在 PATH 中，运行 `uv tool update-shell` 后重新打开终端。在无关目录、不激活虚拟环境的情况下验证 `openjlink --version`。
+
+本地源码开发时，也可在下载的源码根目录执行：
 
 ```text
 python scripts/setup_runtime.py
 python scripts/run.py --help
 ```
 
-后者使用本目录自己的 `.venv`。作为 AI Skill 使用时，将本仓库安装到技能目录并执行相同初始化；入口是 [SKILL.md](SKILL.md)。
+这种备用方式使用本目录自己的 `.venv`，不会安装全局命令。作为 AI Skill 使用时，将本仓库安装到技能目录，优先使用上述全局 CLI 安装方式；入口是 [SKILL.md](SKILL.md)。
 
 ## 工程中使用
 

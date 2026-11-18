@@ -10,21 +10,25 @@ Use direct commands, JSON calls, or a persistent CLI session.
 
 Requires Python 3.10+ and a separately installed SEGGER J-Link Software Pack. This repository does not distribute official DLLs, probe firmware, chip Flash algorithms, or vendor SVD files.
 
+With uv installed, install a user-wide command in an isolated tool environment:
+
 ```text
-python -m pip install "openjlink[modbus] @ git+https://github.com/ruiwarn/OpenJlink.git"
+uv tool install "openjlink[modbus] @ git+https://github.com/ruiwarn/OpenJlink.git"
 openjlink --version
 openjlink --help
 openjlink schema
 ```
 
-Alternatively, download the source and run these commands from its root directory:
+If uv reports that its executable directory is missing from PATH, run `uv tool update-shell` and open a new shell. Verify `openjlink --version` from an unrelated directory without activating an environment.
+
+For local source development, download the source and run these commands from its root directory:
 
 ```text
 python scripts/setup_runtime.py
 python scripts/run.py --help
 ```
 
-This creates an isolated `.venv` in that directory. To use OpenJlink as an AI Skill, install the repository in your skills directory and run the same initialization. The skill entry point is [SKILL.md](SKILL.md).
+This fallback creates an isolated `.venv` in that directory; it does not install a global command. To use OpenJlink as an AI Skill, install the repository in your skills directory and prefer the global CLI installation above. The skill entry point is [SKILL.md](SKILL.md).
 
 ## Using OpenJlink in a project
 
