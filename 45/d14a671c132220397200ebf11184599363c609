@@ -1,0 +1,53 @@
+README.md
+  s_9df3505663b2f7::t_451a5d351184f9 16
+tests/test_interfaces.py
+  s_9df3505663b2f7::t_e218b73b6f8d07 8,70-112
+  s_9df3505663b2f7::t_e3d84a31ddd86e 12,230
+  s_9df3505663b2f7::t_41afee53c7210b 113-114
+references/scenarios.md
+  s_9df3505663b2f7::t_451a5d351184f9 5-6
+tests/test_workbench.py
+  s_9df3505663b2f7::t_e218b73b6f8d07 5,268-309,349-356,472-498
+  s_9df3505663b2f7::t_da523cf12539a6 46-49
+  s_9df3505663b2f7::t_7c2c22d815734e 499-500
+scripts/openjlink/common.py
+  s_9df3505663b2f7::t_da523cf12539a6 103,105-109,111-114
+scripts/openjlink/analysis/report.py
+  s_9df3505663b2f7::t_e3d84a31ddd86e 76
+  s_9df3505663b2f7::t_da523cf12539a6 45,88-89
+README.zh-CN.md
+  s_9df3505663b2f7::t_451a5d351184f9 16
+scripts/openjlink/session.py
+  s_9df3505663b2f7::t_da523cf12539a6 43,192-193,195,445-446,481,489-496,504-505
+pyproject.toml
+  s_9df3505663b2f7::t_451a5d351184f9 7
+scripts/openjlink/__init__.py
+  s_9df3505663b2f7::t_451a5d351184f9 1
+references/setup.md
+  s_9df3505663b2f7::t_451a5d351184f9 10,47-48,51
+  s_9df3505663b2f7::t_41be0c89c68be9 52
+SKILL.md
+  s_9df3505663b2f7::t_451a5d351184f9 16-17
+.github/workflows/checks.yml
+  s_9df3505663b2f7::t_451a5d351184f9 27-28,32-69
+references/rtos.md
+  s_9df3505663b2f7::t_451a5d351184f9 23
+scripts/openjlink/cli.py
+  s_9df3505663b2f7::t_da523cf12539a6 75-77,84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "45d14a671c132220397200ebf11184599363c609",
+  "prompts": {},
+  "sessions": {
+    "s_9df3505663b2f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e3a4-1a90-7ae1-9262-c8022b667d94",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "ruiwarn <162423525+ruiwarn@users.noreply.github.com>"
+    }
+  }
+}
