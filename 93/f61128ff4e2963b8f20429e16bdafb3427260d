@@ -1,0 +1,32 @@
+pyproject.toml
+  h_927be59fb6fa2b 7
+references/debugging.md
+  h_927be59fb6fa2b 19,21,25
+scripts/openjlink/__init__.py
+  h_927be59fb6fa2b 1
+scripts/openjlink/api.py
+  h_927be59fb6fa2b 30-39,43-46,52-56
+scripts/openjlink/cli.py
+  h_927be59fb6fa2b 29,32,37,40-47,51
+scripts/openjlink/hardware/probe.py
+  h_927be59fb6fa2b 1-2,5-28,32-36
+scripts/openjlink/session.py
+  h_927be59fb6fa2b 1,17-18,69,71-72,79,86-93,95-96,107-108,189-215,218-226,292-293,295-296,308-311,322-323,325-326,329-346,348-350,363-364,370-371,373-376,378-390
+scripts/openjlink/symbols/elf.py
+  h_927be59fb6fa2b 68-148,165-184,193,200,206-212,239-247,250-252,254-257,315-318
+tests/test_interfaces.py
+  h_927be59fb6fa2b 254-275
+tests/test_workbench.py
+  h_927be59fb6fa2b 104-108,534-704
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "93f61128ff4e2963b8f20429e16bdafb3427260d",
+  "prompts": {},
+  "humans": {
+    "h_927be59fb6fa2b": {
+      "author": "cloudcli <cloudli@mail.com>"
+    }
+  }
+}
