@@ -12,14 +12,14 @@ You can share this repository as an early preview. A local coding agent with ter
 
 Copy this request to your coding agent:
 
-> Install OpenJlink v0.1.1 from https://github.com/ruiwarn/OpenJlink for my user account, including its reusable AI Skill and globally available CLI. Read this README and respect the host's installation policies.
+> Install OpenJlink v0.1.3 from https://github.com/ruiwarn/OpenJlink for my user account, including its reusable AI Skill and globally available CLI. Read this README and respect the host's installation policies.
 >
 > 1. Detect the operating system, CPU architecture, actual home directory, and AI host. Use that host's documented user-level Skill directory, honoring configured locations and existing installations. Common locations are listed below; do not assume every AI product uses the same directory. If the host does not support Skills, install the CLI and report that limitation. Keep project files and unrelated skills unchanged.
 > 2. Reuse compatible installed tools. If uv is missing, download and inspect the official uv 0.12.16 installer linked below, then install it for this user. Reuse a suitable Python 3.10+ interpreter; otherwise install uv-managed Python 3.13.5. Keep these dependencies outside project and system Python packages, and refresh command discovery after installation.
-> 3. Download the v0.1.1 wheel and source ZIP into a user download/cache directory from the release links below and verify their SHA-256 values. Stage the ZIP, then install the contents of its OpenJlink directory as the host's openjlink Skill directory, with SKILL.md directly inside it. Include agents, references, scripts, and license files. Inspect existing installations and preserve local edits before updating; avoid duplicate Skill entries.
+> 3. Download the v0.1.3 wheel and source ZIP into a user download/cache directory from the release links below and verify their SHA-256 values. Stage the ZIP, then install the contents of its OpenJlink directory as the host's openjlink Skill directory, with SKILL.md directly inside it. Include agents, references, scripts, and license files. Inspect existing installations and preserve local edits before updating; avoid duplicate Skill entries.
 > 4. Install the verified local wheel with the modbus extra using uv tool install, as shown below. This route does not require Git. Make the tool's executable directory available through persistent user PATH; use uv tool update-shell when needed and refresh the current process or open a fresh shell. A private virtual environment alone does not complete global installation.
 > 5. Detect the separately installed official SEGGER J-Link Software Pack and record its version and architecture. Reuse a suitable installation. If hardware support needs it and it is missing, use the official SEGGER download page; stop at required license consent, administrator interaction, or policy restrictions and report that step. Do not substitute a guessed universal SDK version, change USB drivers, or access a target to demonstrate installation. CLI/Skill installation can finish with hardware setup reported pending.
-> 6. From an unrelated directory and fresh shell, without environment activation, verify openjlink --version, --help, and schema. Version must be 0.1.1 and the catalog must contain 51 operations. Run inspect-environment with a writable task state directory and test ping/device_status in one session without connecting. Verify host Skill discovery; refresh or restart the host if needed, otherwise report discovery pending. Report installed paths, actual versions, checks, and any blocked step. Stop on download or installation failure instead of reporting success.
+> 6. From an unrelated directory and fresh shell, without environment activation, verify openjlink --version, --help, and schema. Version must be 0.1.3 and the catalog must contain 54 operations. Run inspect-environment with a writable task state directory and test ping/device_status in one session without connecting. Verify host Skill discovery; refresh or restart the host if needed, otherwise report discovery pending. Report installed paths, actual versions, checks, and any blocked step. Stop on download or installation failure instead of reporting success.
 
 Common user-level destinations; `~` means the actual user's home directory on Windows, Linux, or macOS:
 
@@ -34,14 +34,14 @@ Pinned release assets:
 
 | Asset | SHA-256 |
 |---|---|
-| [CLI wheel](https://github.com/ruiwarn/OpenJlink/releases/download/v0.1.1/openjlink-0.1.1-py3-none-any.whl) | `456a8fe59836b4009b6bd54b17e4c57e476c611ff83ea1d7c5ee8ddb72853a9f` |
-| [Skill/source ZIP](https://github.com/ruiwarn/OpenJlink/releases/download/v0.1.1/OpenJlink_0.1.1.zip) | `d220ab57b2f6ed39d01d690ebe203561eb8448a3c14f11da29c25e440abac5d0` |
+| [CLI wheel](https://github.com/ruiwarn/OpenJlink/releases/download/v0.1.3/openjlink-0.1.3-py3-none-any.whl) | `0472ad96e624ae4a6c9901a0366cbb51bb2f2775f015449e7c0f26933c610aa8` |
+| [Skill/source ZIP](https://github.com/ruiwarn/OpenJlink/releases/download/v0.1.3/OpenJlink_0.1.3.zip) | `cded53809ec06b34f89807d6e7a4912b5bb68e692864cbb51848535f7f4cc2f9` |
 
 Run this baseline from the download/cache directory containing the verified wheel. Install Python only when needed; if reusing an existing interpreter, supply its actual path to `--python` instead:
 
 ```text
 uv python install 3.13.5
-uv tool install --upgrade --python 3.13.5 "./openjlink-0.1.1-py3-none-any.whl[modbus]"
+uv tool install --upgrade --python 3.13.5 "./openjlink-0.1.3-py3-none-any.whl[modbus]"
 uv tool update-shell
 openjlink --version
 openjlink --help
@@ -57,7 +57,7 @@ Requires Python 3.10+ and a separately installed SEGGER J-Link Software Pack. Th
 With uv installed, install a user-wide command in an isolated tool environment:
 
 ```text
-uv tool install --upgrade "openjlink[modbus] @ git+https://github.com/ruiwarn/OpenJlink.git@v0.1.1"
+uv tool install --upgrade "openjlink[modbus] @ git+https://github.com/ruiwarn/OpenJlink.git@v0.1.3"
 openjlink --version
 openjlink --help
 openjlink schema
