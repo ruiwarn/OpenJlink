@@ -1,0 +1,16 @@
+README.md
+  h_927be59fb6fa2b 15,19,22,37-38,44,60
+README.zh-CN.md
+  h_927be59fb6fa2b 15,19,22,37-38,44,60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "79ced24dab346b6b70f9a39d99f6dfbd49f2e330",
+  "prompts": {},
+  "humans": {
+    "h_927be59fb6fa2b": {
+      "author": "cloudcli <cloudli@mail.com>"
+    }
+  }
+}
