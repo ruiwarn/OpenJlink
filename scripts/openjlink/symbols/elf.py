@@ -65,6 +65,87 @@ def images(path, base_address=None):
     return info, result
 
 
+def clip_segments(segments, ranges):
+    if not isinstance(ranges, list) or not ranges:
+        raise InputError("Supply 1..N target memory ranges")
+    spans = []
+    for item in sorted(ranges, key=lambda entry: entry.get("address", -1) if isinstance(entry, dict) else -1):
+        if not isinstance(item, dict) or set(item) != {"address", "size"}:
+            raise InputError("Each range requires exactly address and size")
+        memory_range(item["address"], item["size"], 64 * 1024 * 1024)
+        start, end = item["address"], item["address"] + item["size"]
+        if spans and start <= spans[-1][1]:
+            spans[-1][1] = max(spans[-1][1], end)
+        else:
+            spans.append([start, end])
+    clipped = []
+    for req_start, req_end in spans:
+        for seg_start, seg_data in segments:
+            seg_end = seg_start + len(seg_data)
+            lo, hi = max(req_start, seg_start), min(req_end, seg_end)
+            if lo < hi:
+                chunk = seg_data[lo - seg_start:hi - seg_start]
+                if clipped and lo == clipped[-1][0] + len(clipped[-1][1]):
+                    clipped[-1][1].extend(chunk)
+                else:
+                    clipped.append((lo, bytearray(chunk)))
+    if not clipped:
+        raise InputError("Image has no bytes within requested ranges")
+    return [(addr, bytes(data)) for addr, data in clipped]
+
+
+def _merge_segments(pairs):
+    merged = []
+    for address, data in sorted(pairs, key=lambda item: item[0]):
+        if not data:
+            continue
+        if merged and address <= merged[-1][0] + len(merged[-1][1]):
+            prev_addr, prev_data = merged[-1]
+            overlap = prev_addr + len(prev_data) - address
+            if overlap >= len(data):
+                continue
+            prev_data.extend(data[overlap:])
+        else:
+            merged.append((address, bytearray(data)))
+    return [(addr, bytes(data)) for addr, data in merged]
+
+
+def elf_section_segments(elf):
+    load_segs = [s for s in elf.iter_segments() if s["p_type"] == "PT_LOAD" and s["p_filesz"]]
+    pairs = []
+    for sec in elf.iter_sections():
+        if not (sec["sh_flags"] & 2) or sec["sh_type"] == "SHT_NOBITS" or sec["sh_size"] == 0:
+            continue
+        sec_off, sec_size, sec_addr = int(sec["sh_offset"]), int(sec["sh_size"]), int(sec["sh_addr"])
+        in_file = [s for s in load_segs if int(s["p_offset"]) <= sec_off and sec_off + sec_size <= int(s["p_offset"]) + int(s["p_filesz"])]
+        seg = next((s for s in in_file if int(s["p_vaddr"]) <= sec_addr <= int(s["p_vaddr"]) + int(s["p_memsz"])), in_file[0] if in_file else None)
+        if seg is not None:
+            lma = int(seg["p_paddr"]) + (sec_off - int(seg["p_offset"]))
+            pairs.append((lma, sec.data()))
+    return _merge_segments(pairs)
+
+
+def _segments_cover(verified_segments, req_addr, req_data):
+    pos = req_addr
+    end = req_addr + len(req_data)
+    for v_addr, v_data in verified_segments:
+        v_end = v_addr + len(v_data)
+        if v_end <= pos:
+            continue
+        if v_addr > pos:
+            return False
+        take_end = min(end, v_end)
+        req_off = pos - req_addr
+        v_off = pos - v_addr
+        chunk_len = take_end - pos
+        if req_data[req_off:req_off + chunk_len] != v_data[v_off:v_off + chunk_len]:
+            return False
+        pos = take_end
+        if pos >= end:
+            return True
+    return pos >= end
+
+
 def inspect_image(path: str, base_address: int | None = None):
     info, segments = images(path, base_address)
     return {"source": info, "ranges": [{"address": a, "size": len(d)} for a, d in segments],
@@ -81,6 +162,26 @@ def _attribute_owner(die, name):
     return die
 
 
+def _cu_path(cu):
+    top = cu.get_top_DIE()
+    name_attr = top.attributes.get("DW_AT_name")
+    if not name_attr:
+        return ""
+    cu_file = name_attr.value.decode(errors="replace").replace("\\", "/")
+    comp_attr = top.attributes.get("DW_AT_comp_dir")
+    if comp_attr and not posixpath.isabs(cu_file) and not re.match(r"^[A-Za-z]:/", cu_file):
+        comp_dir = comp_attr.value.decode(errors="replace").replace("\\", "/")
+        cu_file = posixpath.normpath(posixpath.join(comp_dir, cu_file))
+    return cu_file
+
+
+def _die_address(die):
+    ops = DWARFExprParser(die.cu.structs).parse_expr(die.attributes["DW_AT_location"].value)
+    if len(ops) == 1 and ops[0].op_name == "DW_OP_addr":
+        return f"0x{ops[0].args[0]:08x}"
+    return "non-fixed"
+
+
 class Symbols:
     def __init__(self, path):
         self.info = file_info(path)
@@ -89,17 +190,25 @@ class Symbols:
         self.variables = {}
         if self.dwarf:
             for cu in self.dwarf.iter_CUs():
+                cu_file = _cu_path(cu)
                 for die in cu.iter_DIEs():
                     if die.tag != "DW_TAG_variable" or "DW_AT_location" not in die.attributes:
                         continue
                     owner = _attribute_owner(die, "DW_AT_name")
                     if owner is not None:
                         name = owner.attributes["DW_AT_name"].value.decode(errors="replace")
-                        self.variables.setdefault(name, []).append(die)
+                        self.variables.setdefault(name, []).append((cu_file, die))
 
     def current(self):
         if file_info(self.info["path"])["sha256"] != self.info["sha256"]:
             raise InputError("Symbol source changed; reload symbols and verify the image")
+
+    def matches_verified_segments(self, verified_segments):
+        required = elf_section_segments(self.elf)
+        if not required:
+            return False
+        ordered = _merge_segments(verified_segments)
+        return all(_segments_cover(ordered, addr, data) for addr, data in required)
 
     def type_die(self, die):
         owner = _attribute_owner(die, "DW_AT_type")
@@ -127,13 +236,25 @@ class Symbols:
 
     def resolve(self, name):
         self.current()
-        tokens = re.findall(r"[A-Za-z_]\w*|\[\d+\]", name)
-        if not tokens or ".".join(tokens).replace(".[", "[") != name:
+        if "::" in name:
+            qualifier, expr = name.split("::", 1)
+            if not qualifier or "::" in expr:
+                raise InputError("Use optional file.c::variable, struct.member or array[index]")
+            qualifier = qualifier.replace("\\", "/")
+        else:
+            qualifier, expr = None, name
+        tokens = re.findall(r"[A-Za-z_]\w*|\[\d+\]", expr)
+        if not tokens or ".".join(tokens).replace(".[", "[") != expr:
             raise InputError("Use a global variable, struct.member or array[index]")
         matches = self.variables.get(tokens[0], [])
-        if len(matches) != 1:
+        if qualifier is not None:
+            matches = [(cu, d) for cu, d in matches if cu and (cu == qualifier or cu.endswith("/" + qualifier) or posixpath.basename(cu) == qualifier)]
+        if not matches:
             raise InputError("Variable missing or ambiguous; optimized/local variables are not guessed")
-        die = matches[0]
+        if len(matches) > 1:
+            hints = [f"{posixpath.basename(cu) or '<unknown>'}::{tokens[0]}@{_die_address(d)}" for cu, d in matches[:8]]
+            raise InputError(f"Ambiguous variable '{tokens[0]}'; qualify with file::name ({', '.join(hints)})")
+        _, die = matches[0]
         ops = DWARFExprParser(die.cu.structs).parse_expr(die.attributes["DW_AT_location"].value)
         if len(ops) != 1 or ops[0].op_name != "DW_OP_addr":
             raise InputError("Variable has no fixed memory address")
@@ -191,6 +312,10 @@ class Symbols:
 
     def search(self, query="", limit=100):
         self.current()
+        if "::" in query:
+            q = query.lower()
+            names = [f"{posixpath.basename(cu) or '<unknown>'}::{n}" for n in sorted(self.variables) for cu, _ in self.variables[n] if q in f"{cu}::{n}".lower()]
+            return {"generation": self.info["sha256"], "names": names[:limit]}
         return {"generation": self.info["sha256"], "names": [n for n in sorted(self.variables) if query.lower() in n.lower()][:limit]}
 
     def memory_map(self):

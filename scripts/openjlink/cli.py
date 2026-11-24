@@ -26,19 +26,29 @@ def main():
     sys.stdin.reconfigure(encoding="utf-8-sig")
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
+    state_help = "Writable task state directory for sessions/jobs"
     parser = argparse.ArgumentParser(prog="openjlink")
     parser.add_argument("--version", action="version", version="OpenJlink " + __version__)
-    parser.add_argument("--state-dir", help="Writable task state directory for sessions/jobs")
+    parser.add_argument("--state-dir", help=state_help)
     sub = parser.add_subparsers(dest="mode", required=True)
     schema = sub.add_parser("schema")
     schema.add_argument("operation", nargs="?", choices=list(catalog()))
     single = sub.add_parser("call")
+    single.add_argument("--state-dir", default=argparse.SUPPRESS, help=state_help)
     single.add_argument("operation", choices=list(catalog()))
     single.add_argument("--args", default="{}", help="JSON object or @UTF-8-file.json")
-    sub.add_parser("session", help="Persistent newline JSON requests and immediate responses")
+    session_parser = sub.add_parser(
+        "session",
+        help="Persistent newline JSON requests and immediate responses",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Persistent newline-delimited JSON-RPC over stdin/stdout (keeps connect/load_symbols state).",
+        epilog='Request:  {"id": 1, "operation": "connect", "arguments": {"serial": 123, "device": "Cortex-M0"}}\nResponse: {"id": 1, "ok": true, "result": {...}}',
+    )
+    session_parser.add_argument("--state-dir", default=argparse.SUPPRESS, help=state_help)
     for name, info in catalog().items():
         direct = sub.add_parser(name.replace("_", "-"), help=info["description"])
         direct.set_defaults(operation=name)
+        direct.add_argument("--state-dir", default=argparse.SUPPRESS, help=state_help)
         for parameter in signature(name).parameters.values():
             options = {"dest": parameter.name}
             if parameter.annotation is bool:

@@ -101,6 +101,11 @@ class Probe:
     def reset(self, halt=True):
         self.running = not halt
 
+    def exec_command(self, cmd):
+        self.commands = getattr(self, "commands", [])
+        self.commands.append(cmd)
+        return 0
+
 
 @pytest.fixture
 def bench(tmp_path):
@@ -526,3 +531,174 @@ def test_peripheral_capture_is_replayable(bench, svd_fixture, tmp_path):
     result = summarize_recording(str(output))
     assert result["channels"]["TEST.CTRL"]["first"] == 0
     assert result["metadata"]["source_kind"] == "peripherals"
+
+
+def test_in_place_library_cached_and_devices_xml(tmp_path, monkeypatch):
+    import pylink
+    from openjlink.hardware import probe as probe_mod
+
+    probe_mod._LIBRARIES.clear()
+    calls = []
+
+    class DummyLib:
+        def __init__(self, dllpath=None, use_tmpcpy=True):
+            calls.append((dllpath, use_tmpcpy))
+            self._path = dllpath or "default"
+
+    class DummyJLink:
+        def __init__(self, lib=None, **kwargs):
+            self.lib = lib
+
+    monkeypatch.setattr(pylink.library, "Library", DummyLib)
+    monkeypatch.setattr(pylink, "JLink", DummyJLink)
+    dll = tmp_path / "JLink_x64.dll"
+    dll.write_bytes(b"")
+    probe_mod.new_probe(None)
+    probe_mod.new_probe(None)
+    probe_mod.new_probe(str(dll))
+    probe_mod.new_probe(str(dll))
+    assert calls == [(None, False), (str(dll.resolve()), False)]
+    probe_mod._LIBRARIES.clear()
+
+    tool_dir = tmp_path / "segger"
+    tool_dir.mkdir()
+    jlink_exe = tool_dir / "JLink.exe"
+    jlink_exe.write_bytes(b"")
+    xml = tool_dir / "JLinkDevices.xml"
+    xml.write_text("<DataBase/>", encoding="utf-8")
+    monkeypatch.setattr(shutil, "which", lambda name: str(jlink_exe) if name == "JLink.exe" else None)
+
+    p = Probe()
+    w = Workbench(tmp_path / "db-state", factory=lambda d: p)
+    try:
+        env = w.inspect_environment()
+        assert str(xml.resolve()) in env["device_databases"]
+        assert env["hardware_accessed"] is False
+        with pytest.raises(InputError):
+            w.connect(777, "CustomMCU", devices_xml_path=str(tmp_path / "missing.xml"))
+        status = w.connect(777, "CustomMCU", devices_xml_path=str(xml))
+        assert status["selection"]["devices_xml_path"] == str(xml.resolve())
+        assert p.commands == [f"JLinkDevicesXMLPath={xml.resolve()}"]
+    finally:
+        w.close()
+
+
+def test_concurrent_mismatch_no_quarantine_and_atomic_halt(bench):
+    w, p = bench
+    p.mem.update({200: 1, 201: 2})
+
+    def concurrent_read(address, size):
+        p.reads.append((address, size))
+        return [0xAA, 0xBB]
+
+    orig_read = p.memory_read8
+    p.memory_read8 = concurrent_read
+    mismatch = w.write_memory(200, "1122", confirm=True)
+    assert mismatch["ok"] is False and mismatch["verified"] is False
+    assert mismatch["readback_mismatch"] is True
+    assert mismatch["expected_hex"] == "1122" and mismatch["actual_hex"] == "aabb"
+    assert w.quarantine is False
+
+    p.memory_read8 = orig_read
+    skipped = w.write_memory(200, "3344", confirm=True, verify_readback=False)
+    assert skipped["verified"] is False and skipped["readback_skipped"] is True
+    assert p.mem[200] == 0x33 and p.mem[201] == 0x44
+
+    halt_states = []
+    orig_write = p.memory_write8
+
+    def tracked_write(addr, data):
+        halt_states.append(p.halted())
+        return orig_write(addr, data)
+
+    p.memory_write8 = tracked_write
+    assert p.running is True
+    res = w.write_memory(200, "5566", confirm=True, atomic_halt=True)
+    assert res["verified"] is True and halt_states == [True] and p.running is True
+
+    halt_states.clear()
+    batch = w.write_regions([{"address": 200, "data_hex": "77"}, {"address": 201, "data_hex": "88"}],
+                            confirm=True, atomic_halt=True)
+    assert batch["ok"] is True and batch["verified"] is True and batch["atomic"] is True
+    assert halt_states == [True, True] and p.running is True
+
+    def failing_read(address, size):
+        raise RuntimeError("Unspecified error")
+
+    p.memory_read8 = failing_read
+    with pytest.raises(RuntimeError, match="speed_khz=1000"):
+        w.read_memory(200, 4)
+    assert w.quarantine is False
+
+
+def test_split_boot_app_verify_and_cu_qualified_statics(tmp_path, bench):
+    compiler = shutil.which("arm-none-eabi-gcc")
+    objcopy = shutil.which("arm-none-eabi-objcopy")
+    if not compiler or not objcopy:
+        pytest.skip("Optional Arm GCC fixture required")
+    w, p = bench
+    src_a = tmp_path / "alpha.c"
+    src_b = tmp_path / "beta.c"
+    ld = tmp_path / "split.ld"
+    elf = tmp_path / "split.elf"
+    app_bin = tmp_path / "app.bin"
+    src_a.write_text(
+        "static volatile int dup_val = 11;\n"
+        "volatile int global_target = 5;\n"
+        "int read_a(void) { return dup_val + global_target; }\n"
+        "void _start(void) { for (;;) {} }\n",
+        encoding="utf-8",
+    )
+    src_b.write_text(
+        "static volatile int dup_val = 22;\n"
+        "int read_b(void) { return dup_val; }\n",
+        encoding="utf-8",
+    )
+    ld.write_text(
+        "MEMORY { FLASH (rx) : ORIGIN = 0x8000, LENGTH = 0x20000 RAM (rwx) : ORIGIN = 0x20000000, LENGTH = 0x4000 }\n"
+        "SECTIONS {\n"
+        "  .text : ALIGN(4) { *(.text .text.* .rodata*) } > FLASH\n"
+        "  .data : ALIGN(4) { *(.data .data.*) } > RAM AT > FLASH\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    subprocess.run(
+        [compiler, "-g", "-O0", "-nostdlib", "-mcpu=cortex-m0", "-mthumb", "-T", str(ld), str(src_a), str(src_b), "-o", str(elf)],
+        check=True, capture_output=True,
+    )
+    subprocess.run([objcopy, "-O", "binary", str(elf), str(app_bin)], check=True, capture_output=True)
+
+    w.load_symbols(str(elf))
+    with pytest.raises(InputError, match="alpha.c::dup_val"):
+        w.type_info("dup_val")
+    assert w.search_symbols("alpha.c::dup_val")["names"] == ["alpha.c::dup_val"]
+    assert w.search_symbols("dup_val")["names"] == ["dup_val"]
+
+    raw_bin = app_bin.read_bytes()
+    for i, b in enumerate(raw_bin):
+        p.mem[0x8000 + i] = b
+    addr_a = w.type_info("alpha.c::dup_val")["address"]
+    addr_b = w.type_info("beta.c::dup_val")["address"]
+    assert addr_a != addr_b
+    for i in range(4):
+        p.mem[addr_a + i] = (11).to_bytes(4, "little")[i]
+        p.mem[addr_b + i] = (22).to_bytes(4, "little")[i]
+    assert w.read_variable("alpha.c::dup_val")["value"] == 11
+    assert w.read_variable("beta.c::dup_val")["value"] == 22
+
+    # Tiny range verify does not mark full ELF verified
+    small = w.verify_image(str(app_bin), base_address=0x8000, ranges=[{"address": 0x8000, "size": 4}], halt_during_verify=True)
+    assert small["verified"] is True and small["symbols_verified"] is False and p.running is True
+
+    # Full app.bin at 0x8000 covers all SHF_ALLOC sections in ELF even with different bytes at 0x0000
+    p.mem[0] = 0xFF
+    verified = w.verify_image(str(app_bin), base_address=0x8000, halt_during_verify=True)
+    assert verified["symbols_verified"] is True and p.running is True
+    gen = w.symbols.info["sha256"]
+    assert w.write_variable("alpha.c::dup_val", 99, gen, confirm=True, atomic_halt=True)["verified"] is True
+    assert w.read_variable("alpha.c::dup_val")["value"] == 99
+
+    # Range-clipped ELF verify starting at 0x8000 also unlocks symbols
+    w.verified = None
+    elf_ranged = w.verify_image(str(elf), ranges=[{"address": 0x8000, "size": len(raw_bin)}])
+    assert elf_ranged["symbols_verified"] is True

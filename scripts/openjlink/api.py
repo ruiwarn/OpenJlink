@@ -27,10 +27,21 @@ EXTRAS = {
 OFFLINE = {"inspect_image", "decode_packets", "summarize_recording", "compare_recordings", "analyze_events", "decode_systemview", "export_rtt", "render_recording", "serial_ports", "gdb_server_arguments"}
 
 
-def signature(name):
-    method = EXTRAS[name][0] if name in EXTRAS else getattr(Workbench, name)
-    value = inspect.signature(method)
+JOB_OPERATIONS = {
+    "program": ("_program", "Program ELF/HEX/BIN within explicit allowed_ranges and optional preserve_ranges"),
+    "erase": ("_erase", "Erase connected device matching explicit device name"),
+    "reset": ("_reset", "Reset target with explicit halt flag"),
+    "capture": ("_capture", "Timed memory, peripheral, or RTT capture to a recording file"),
+}
+
+
+def method_signature(callable_object):
+    value = inspect.signature(callable_object)
     return value.replace(parameters=[p for p in value.parameters.values() if p.name != "self"])
+
+
+def signature(name):
+    return method_signature(EXTRAS[name][0] if name in EXTRAS else getattr(Workbench, name))
 
 
 def catalog():
@@ -38,6 +49,11 @@ def catalog():
     for name in OPERATIONS.keys() | EXTRAS.keys():
         result[name] = {"description": EXTRAS[name][1] if name in EXTRAS else OPERATIONS[name],
                         "signature": str(signature(name))}
+    result["start_job"]["job_operations"] = {
+        op: {"description": desc, "signature": str(method_signature(getattr(Workbench, method)))}
+        for op, (method, desc) in JOB_OPERATIONS.items()
+    }
+    result["start_job"]["terminal_states"] = ["completed", "failed", "unknown"]
     return dict(sorted(result.items()))
 
 

@@ -251,6 +251,28 @@ def test_session_wire_encoding_is_utf8_under_ascii_host(tmp_path):
     assert json.loads(result.stdout.decode("utf-8"))["id"] == "测试😀"
 
 
+def test_state_dir_after_subcommand_schema_jobs_and_session_help(tmp_path):
+    command = [sys.executable, "-m", "openjlink"]
+    for args in (
+        ["ping", "--state-dir", str(tmp_path / "after-direct")],
+        ["call", "ping", "--state-dir", str(tmp_path / "after-call")],
+        ["session", "--state-dir", str(tmp_path / "after-session")],
+    ):
+        res = subprocess.run(command + args, input='{"id":1,"operation":"ping"}\n', capture_output=True, text=True)
+        assert res.returncode == 0, res.stderr
+        row = json.loads(res.stdout.splitlines()[0])
+        assert (row["ok"] and row["result"]["operations"]) if "session" in args else row["operations"]
+
+    schema = json.loads(subprocess.check_output(command + ["schema"], text=True))
+    assert len(schema) == 51
+    job_schema = json.loads(subprocess.check_output(command + ["schema", "start_job"], text=True))
+    assert set(job_schema["job_operations"]) == {"program", "erase", "reset", "capture"}
+    assert job_schema["terminal_states"] == ["completed", "failed", "unknown"]
+
+    session_help = subprocess.check_output(command + ["session", "--help"], text=True)
+    assert '"operation"' in session_help and '"arguments"' in session_help
+
+
 def test_skill_launcher_uses_its_own_environment(tmp_path):
     root = tmp_path / "skill"
     scripts = root / "scripts"

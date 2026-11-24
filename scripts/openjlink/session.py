@@ -1,3 +1,4 @@
+import contextlib
 import hashlib
 import inspect
 import json
@@ -13,8 +14,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from openjlink import __version__
 from openjlink.common import InputError, FileLock, approval, file_info, hex_bytes, integer, memory_range, number, timed_read, write_json
-from openjlink.hardware.probe import identity, inventory, new_probe
-from openjlink.symbols.elf import Symbols, images
+from openjlink.hardware.probe import discover_device_databases, identity, inventory, new_probe
+from openjlink.symbols.elf import Symbols, clip_segments, images
 
 
 class Workbench:
@@ -65,22 +66,34 @@ class Workbench:
                 versions[name] = importlib.metadata.version(name)
             except importlib.metadata.PackageNotFoundError:
                 versions[name] = None
+        tools = {n: shutil.which(n) for n in ("JLink.exe", "JLinkGDBServerCL.exe", "JLinkExe", "JLinkGDBServer", "arm-none-eabi-gdb", "arm-none-eabi-gdb.exe")}
         return {"python": os.sys.executable, "packages": versions,
-                "tools": {n: shutil.which(n) for n in ("JLink.exe", "JLinkGDBServerCL.exe", "JLinkExe", "JLinkGDBServer", "arm-none-eabi-gdb", "arm-none-eabi-gdb.exe")},
+                "tools": tools,
+                "device_databases": discover_device_databases(tools),
                 "hardware_accessed": False}
 
     def discover_probes(self, dll_path: str | None = None):
         return inventory(dll_path)
 
     def connect(self, serial: int, device: str, interface: str = "SWD", speed_khz: int = 1000,
-                dll_path: str | None = None):
+                dll_path: str | None = None, devices_xml_path: str | None = None):
         integer(serial, 1)
         integer(speed_khz, 5, 50000)
         if not isinstance(device, str) or not device.strip() or any(c in device for c in "\r\n\0"):
             raise InputError("Explicit target device name required")
         if interface not in ("SWD", "JTAG"):
             raise InputError("interface must be SWD or JTAG")
+        resolved_xml = None
+        if devices_xml_path is not None:
+            if not isinstance(devices_xml_path, str) or not devices_xml_path.strip() or any(c in devices_xml_path for c in "\r\n\0"):
+                raise InputError("Explicit valid devices_xml_path required")
+            try:
+                resolved_xml = str(Path(devices_xml_path).expanduser().resolve(strict=True))
+            except OSError as exc:
+                raise InputError("devices_xml_path does not exist") from exc
         requested = {"serial": serial, "device": device, "interface": interface, "speed_khz": speed_khz}
+        if resolved_xml is not None:
+            requested["devices_xml_path"] = resolved_xml
         if self.probe:
             if requested != self.selection or self.quarantine:
                 raise InputError("Disconnect the current/uncertain session explicitly first")
@@ -91,6 +104,8 @@ class Workbench:
         try:
             probe = self.factory(dll_path)
             probe.open(serial_no=serial)
+            if resolved_xml is not None:
+                probe.exec_command(f"JLinkDevicesXMLPath={resolved_xml}")
             probe.set_tif(getattr(pylink.enums.JLinkInterfaces, interface))
             probe.connect(device, speed=speed_khz)
             self.probe = probe
@@ -171,9 +186,44 @@ class Workbench:
             raise InputError("Supply 1..128 addresses")
         return [self.require_symbols().location(integer(a) & ~1) for a in addresses]
 
+    @contextlib.contextmanager
+    def _with_optional_halt(self, atomic_halt):
+        if type(atomic_halt) is not bool:
+            raise InputError("atomic_halt must be boolean")
+        if not atomic_halt:
+            yield
+            return
+        if self.rtt:
+            raise InputError("Stop RTT explicitly before halting CPU")
+        probe = self.require_probe()
+        was_halted = bool(probe.halted())
+        if not was_halted:
+            probe.halt()
+        try:
+            yield
+        finally:
+            if not was_halted:
+                probe.restart()
+
+    def _raise_read_error(self, probe, address, size, exc):
+        speed = self.selection.get("speed_khz") if self.selection else None
+        try:
+            halted = bool(probe.halted())
+        except Exception:
+            halted = "unknown"
+        raise RuntimeError(f"{exc} reading 0x{address:08X} (+{size} B, speed_khz={speed}, halted={halted}); consider lowering speed_khz or halting before large Flash reads") from exc
+
     def read_memory(self, address: int, size: int):
         memory_range(address, size)
-        return timed_read(self.require_probe(), address, size)
+        probe = self.require_probe()
+        try:
+            return timed_read(probe, address, size)
+        except InputError:
+            raise
+        except Exception as exc:
+            if isinstance(exc, RuntimeError) and str(exc).startswith("Short read:"):
+                raise
+            self._raise_read_error(probe, address, size, exc)
 
     def load_peripherals(self, path: str, byte_order: str):
         from openjlink.peripherals.svd import Peripherals
@@ -239,8 +289,11 @@ class Workbench:
             write_json(str(p) + ".meta.json", result)
         return result
 
-    def write_regions(self, writes: list[dict], confirm: bool = False):
+    def write_regions(self, writes: list[dict], confirm: bool = False,
+                      atomic_halt: bool = False, verify_readback: bool = True):
         approval(confirm)
+        if type(atomic_halt) is not bool or type(verify_readback) is not bool:
+            raise InputError("atomic_halt and verify_readback must be boolean")
         if not isinstance(writes, list) or not 1 <= len(writes) <= 8:
             raise InputError("Supply 1..8 write regions")
         total = 0
@@ -252,8 +305,10 @@ class Workbench:
             total += len(data)
         if total > 12 * 1024:
             raise InputError("Total writes exceed 12 KiB")
-        result = [self.write_memory(item["address"], item["data_hex"], True) for item in writes]
-        return {"results": result, "verified": True, "atomic": False}
+        with self._with_optional_halt(atomic_halt):
+            result = [self.write_memory(item["address"], item["data_hex"], True, atomic_halt=False, verify_readback=verify_readback) for item in writes]
+        return {"ok": all(r.get("ok", True) for r in result), "results": result,
+                "verified": all(r.get("verified") for r in result), "atomic": bool(atomic_halt)}
 
     def set_speed(self, speed_khz: int, confirm: bool = False):
         approval(confirm)
@@ -264,24 +319,35 @@ class Workbench:
         self.selection["speed_khz"] = speed_khz
         return {"speed_khz_requested": speed_khz, "target_stability_verified": False}
 
-    def write_memory(self, address: int, data_hex: str, confirm: bool = False, expected_hex: str | None = None):
+    def write_memory(self, address: int, data_hex: str, confirm: bool = False, expected_hex: str | None = None,
+                     atomic_halt: bool = False, verify_readback: bool = True):
         approval(confirm)
+        if type(atomic_halt) is not bool or type(verify_readback) is not bool:
+            raise InputError("atomic_halt and verify_readback must be boolean")
         data = hex_bytes(data_hex)
         memory_range(address, len(data))
-        if expected_hex is not None and self.read_memory(address, len(data))["hex"] != hex_bytes(expected_hex).hex():
-            raise InputError("Expected old value mismatch; no write performed")
-        probe = self.require_probe()
-        try:
-            written = probe.memory_write8(address, list(data))
-            if written != len(data):
-                raise RuntimeError("Partial memory write")
-            actual = self.read_memory(address, len(data))["hex"]
+        with self._with_optional_halt(atomic_halt):
+            if expected_hex is not None and self.read_memory(address, len(data))["hex"] != hex_bytes(expected_hex).hex():
+                raise InputError("Expected old value mismatch; no write performed")
+            probe = self.require_probe()
+            try:
+                written = probe.memory_write8(address, list(data))
+                if written != len(data):
+                    raise RuntimeError("Partial memory write")
+            except Exception:
+                self.quarantine = True
+                raise
+            if not verify_readback:
+                return {"address": address, "bytes_written": written, "verified": False, "readback_skipped": True}
+            try:
+                actual = self.read_memory(address, len(data))["hex"]
+            except Exception:
+                self.quarantine = True
+                raise
             if actual != data.hex():
-                raise RuntimeError("Write readback mismatch")
-        except Exception:
-            self.quarantine = True
-            raise
-        return {"address": address, "bytes_written": written, "verified": True}
+                return {"ok": False, "address": address, "bytes_written": written, "verified": False,
+                        "readback_mismatch": True, "expected_hex": data.hex(), "actual_hex": actual}
+            return {"address": address, "bytes_written": written, "verified": True}
 
     def read_variable(self, name: str):
         symbols = self.require_symbols()
@@ -294,26 +360,34 @@ class Workbench:
                 "firmware_verified": self.verified == symbols.info["sha256"]}
 
     def write_variable(self, name: str, value: int | float, generation: str,
-                       confirm: bool = False, expected_hex: str | None = None):
+                       confirm: bool = False, expected_hex: str | None = None,
+                       atomic_halt: bool = False, verify_readback: bool = True):
         symbols = self.require_symbols()
         if generation != symbols.info["sha256"] or self.verified != generation:
             raise InputError("Verify the current ELF image against target Flash before symbolic writes")
         data = symbols.encode(name, value)
         address, size, encoding, typ = symbols.resolve(name)
-        return self.write_memory(address, data.hex(), confirm, expected_hex)
+        return self.write_memory(address, data.hex(), confirm, expected_hex,
+                                 atomic_halt=atomic_halt, verify_readback=verify_readback)
 
-    def verify_image(self, path: str, base_address: int | None = None):
+    def verify_image(self, path: str, base_address: int | None = None,
+                     ranges: list[dict] | None = None, halt_during_verify: bool = False):
+        if type(halt_during_verify) is not bool:
+            raise InputError("halt_during_verify must be boolean")
         info, segments = images(path, base_address)
-        self.require_probe()
-        for address, data in segments:
-            for offset in range(0, len(data), 4096):
-                expected = data[offset:offset + 4096]
-                if self.read_memory(address + offset, len(expected))["hex"] != expected.hex():
-                    self.verified = None
-                    raise InputError(f"Image verification mismatch at 0x{address + offset:08X}")
-        if self.symbols and info["sha256"] == self.symbols.info["sha256"]:
-            self.verified = info["sha256"]
-        return {"verified": True, "source": info, "ranges": [{"address": a, "size": len(d)} for a, d in segments]}
+        if ranges is not None:
+            segments = clip_segments(segments, ranges)
+        with self._with_optional_halt(halt_during_verify):
+            for address, data in segments:
+                for offset in range(0, len(data), 4096):
+                    expected = data[offset:offset + 4096]
+                    if self.read_memory(address + offset, len(expected))["hex"] != expected.hex():
+                        self.verified = None
+                        raise InputError(f"Image verification mismatch at 0x{address + offset:08X}")
+        if self.symbols and ((ranges is None and info["sha256"] == self.symbols.info["sha256"]) or self.symbols.matches_verified_segments(segments)):
+            self.verified = self.symbols.info["sha256"]
+        return {"verified": True, "source": info, "ranges": [{"address": a, "size": len(d)} for a, d in segments],
+                "symbols_verified": bool(self.symbols and self.verified == self.symbols.info["sha256"])}
 
     def check_heartbeat(self, address: int, size: int = 4, interval: float = .1, samples: int = 3):
         integer(size, 1, 8)
