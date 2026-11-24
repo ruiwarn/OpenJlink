@@ -1,0 +1,44 @@
+.github/workflows/checks.yml
+  h_927be59fb6fa2b 63
+README.md
+  h_927be59fb6fa2b 103,112,114
+README.zh-CN.md
+  h_927be59fb6fa2b 103,112,114
+SKILL.md
+  h_927be59fb6fa2b 8,12,14-19,21,23-31,33,35-41,45
+pyproject.toml
+  h_927be59fb6fa2b 7
+references/debugging.md
+  h_927be59fb6fa2b 11,15,19,21-23
+scripts/openjlink/__init__.py
+  h_927be59fb6fa2b 1
+scripts/openjlink/capture/recording.py
+  h_927be59fb6fa2b 46-47
+scripts/openjlink/cli.py
+  h_927be59fb6fa2b 7,10,14-33,50,54,57,61,72-74,79,93-96,108-111,119-126,128-137,139-146,150
+scripts/openjlink/compact.py
+  h_927be59fb6fa2b 1-80
+scripts/openjlink/hardware/probe.py
+  h_927be59fb6fa2b 30-44,51-60,64
+scripts/openjlink/peripherals/svd.py
+  h_927be59fb6fa2b 65
+scripts/openjlink/session.py
+  h_927be59fb6fa2b 5,23,34,167,177-185,190-199,248,250,373-374,379-415,419,425-453,473-477,669-683,770,772,786,800
+scripts/openjlink/symbols/elf.py
+  h_927be59fb6fa2b 294,296-299,301-303,305-354,364,369-371
+tests/test_interfaces.py
+  h_927be59fb6fa2b 267,276-314
+tests/test_workbench.py
+  h_927be59fb6fa2b 6,706-821
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "2cff410d867941150883270e10ff1dc95227c47e",
+  "prompts": {},
+  "humans": {
+    "h_927be59fb6fa2b": {
+      "author": "cloudcli <cloudli@mail.com>"
+    }
+  }
+}
