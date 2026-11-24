@@ -2,6 +2,7 @@ import contextlib
 import hashlib
 import inspect
 import json
+import math
 import os
 import shutil
 import sqlite3
@@ -19,7 +20,7 @@ from openjlink.symbols.elf import Symbols, clip_segments, images
 
 
 class Workbench:
-    def __init__(self, state_dir, factory=new_probe):
+    def __init__(self, state_dir, factory=None):
         self.directory = Path(state_dir).expanduser().resolve()
         self.directory.mkdir(parents=True, exist_ok=True)
         self.owner = FileLock(self.directory / "owner.lock").acquire()
@@ -30,7 +31,7 @@ class Workbench:
         self.db.execute("UPDATE jobs SET state='unknown' WHERE state IN ('accepted','running')")
         self.db.commit()
         self.executor = ThreadPoolExecutor(max_workers=1)
-        self.factory = factory
+        self.factory = factory if factory is not None else (lambda dll_path=None: new_probe(dll_path, log_path=self.directory / "jlink.log"))
         self.probe = None
         self.selection = None
         self.probe_lock = None
@@ -163,7 +164,7 @@ class Workbench:
         return {"source": self.symbols.info, "generation": self.symbols.info["sha256"],
                 "variables": len(self.symbols.variables), "firmware_match": "unverified"}
 
-    def search_symbols(self, query: str = "", limit: int = 100):
+    def search_symbols(self, query: str = "", limit: int = 30):
         integer(limit, 1, 1000)
         return self.require_symbols().search(query, limit)
 
@@ -173,13 +174,29 @@ class Workbench:
         self.symbols.current()
         return self.symbols
 
+    def _require_verified_generation(self, generation: str):
+        symbols = self.require_symbols()
+        if (not isinstance(generation, str) or not 12 <= len(generation) <= 64
+                or any(c not in "0123456789abcdef" for c in generation)
+                or self.verified != symbols.info["sha256"]
+                or not self.verified.startswith(generation)):
+            raise InputError("Verify the current ELF image against target Flash before symbolic writes")
+        return symbols
+
     def memory_map(self):
         return self.require_symbols().memory_map()
 
     def type_info(self, name: str):
-        address, size, encoding, typ = self.require_symbols().resolve(name)
-        return {"name": name, "address": address, "size": size, "encoding": encoding,
-                "tag": typ.tag, "generation": self.symbols.info["sha256"]}
+        symbols = self.require_symbols()
+        address, size, encoding, typ = symbols.resolve(name)
+        result = {"name": name, "address": address, "size": size, "encoding": encoding,
+                  "tag": typ.tag, "generation": symbols.info["sha256"]}
+        fields, truncated = symbols.struct_fields(typ)
+        if fields is not None:
+            result["fields"] = fields
+            if truncated:
+                result["fields_truncated"] = True
+        return result
 
     def symbolize(self, addresses: list[int]):
         if not isinstance(addresses, list) or not 1 <= len(addresses) <= 128:
@@ -228,9 +245,9 @@ class Workbench:
     def load_peripherals(self, path: str, byte_order: str):
         from openjlink.peripherals.svd import Peripherals
         self.peripherals = Peripherals(path, byte_order)
-        return self.peripherals.catalog("", 100)
+        return self.peripherals.catalog("", 30)
 
-    def list_peripherals(self, query: str = "", limit: int = 100):
+    def list_peripherals(self, query: str = "", limit: int = 30):
         if self.peripherals is None:
             raise InputError("Load an explicit SVD first")
         return self.peripherals.catalog(query, limit)
@@ -353,22 +370,86 @@ class Workbench:
         symbols = self.require_symbols()
         address, size, encoding, typ = symbols.resolve(name)
         result = self.read_memory(address, size)
-        value = symbols.decode(name, bytes.fromhex(result["hex"]))
-        if isinstance(value, float) and not __import__("math").isfinite(value):
+        value = symbols.decode_type(typ, bytes.fromhex(result["hex"]))
+        if isinstance(value, float) and not math.isfinite(value):
             value = str(value)
         return {**result, "name": name, "value": value, "generation": symbols.info["sha256"],
                 "firmware_verified": self.verified == symbols.info["sha256"]}
 
+    def read_variables(self, names: list[str], atomic_halt: bool = False):
+        if type(atomic_halt) is not bool:
+            raise InputError("atomic_halt must be boolean")
+        if not isinstance(names, list) or not 1 <= len(names) <= 64 or len(set(names)) != len(names):
+            raise InputError("Supply 1..64 unique symbol names")
+        symbols = self.require_symbols()
+        resolved = []
+        total = 0
+        for name in names:
+            if not isinstance(name, str):
+                raise InputError("Each symbol name must be a string")
+            address, size, _, typ = symbols.resolve(name)
+            total += size
+            resolved.append((name, address, size, typ))
+        if total > 16 * 1024:
+            raise InputError("Total variable batch size exceeds 16 KiB")
+        spans = []
+        for _, address, size, _ in sorted(resolved, key=lambda item: item[1]):
+            end = address + size
+            if spans and address <= spans[-1][1] and max(spans[-1][1], end) - spans[-1][0] <= 4096:
+                spans[-1][1] = max(spans[-1][1], end)
+            else:
+                spans.append([address, end])
+        with self._with_optional_halt(atomic_halt):
+            reads = [self.read_memory(a, b - a) for a, b in spans]
+        values = {}
+        for name, address, size, typ in resolved:
+            read = next(x for x in reads if x["address"] <= address and address + size <= x["address"] + x["size"])
+            offset = address - read["address"]
+            raw = bytes.fromhex(read["hex"])[offset:offset + size]
+            value = symbols.decode_type(typ, raw)
+            if isinstance(value, float) and not math.isfinite(value):
+                value = str(value)
+            values[name] = value
+        return {"values": values, "transactions": len(reads), "atomic": bool(atomic_halt),
+                "generation": symbols.info["sha256"], "firmware_verified": self.verified == symbols.info["sha256"]}
+
     def write_variable(self, name: str, value: int | float, generation: str,
                        confirm: bool = False, expected_hex: str | None = None,
                        atomic_halt: bool = False, verify_readback: bool = True):
-        symbols = self.require_symbols()
-        if generation != symbols.info["sha256"] or self.verified != generation:
-            raise InputError("Verify the current ELF image against target Flash before symbolic writes")
+        symbols = self._require_verified_generation(generation)
         data = symbols.encode(name, value)
         address, size, encoding, typ = symbols.resolve(name)
         return self.write_memory(address, data.hex(), confirm, expected_hex,
                                  atomic_halt=atomic_halt, verify_readback=verify_readback)
+
+    def write_variables(self, writes: list[dict], generation: str, confirm: bool = False,
+                        atomic_halt: bool = False, verify_readback: bool = True):
+        approval(confirm)
+        if type(atomic_halt) is not bool or type(verify_readback) is not bool:
+            raise InputError("atomic_halt and verify_readback must be boolean")
+        if not isinstance(writes, list) or not 1 <= len(writes) <= 16:
+            raise InputError("Supply 1..16 variable writes")
+        symbols = self._require_verified_generation(generation)
+        encoded = []
+        for item in writes:
+            if not isinstance(item, dict) or not {"name", "value"} <= set(item) or not set(item) <= {"name", "value", "expected_hex"}:
+                raise InputError("Each write requires name, value, and optional expected_hex")
+            name = item["name"]
+            if not isinstance(name, str):
+                raise InputError("Each variable name must be a string")
+            data = symbols.encode(name, item["value"])
+            address, _, _, _ = symbols.resolve(name)
+            expected_hex = item.get("expected_hex")
+            if expected_hex is not None and len(hex_bytes(expected_hex)) != len(data):
+                raise InputError("expected_hex length must match variable size")
+            encoded.append((name, address, data.hex(), expected_hex))
+        with self._with_optional_halt(atomic_halt):
+            results = [
+                {**self.write_memory(address, data_hex, True, expected_hex, atomic_halt=False, verify_readback=verify_readback), "name": name}
+                for name, address, data_hex, expected_hex in encoded
+            ]
+        return {"ok": all(r.get("ok", True) for r in results), "results": results,
+                "verified": all(r.get("verified") for r in results), "atomic": bool(atomic_halt)}
 
     def verify_image(self, path: str, base_address: int | None = None,
                      ranges: list[dict] | None = None, halt_during_verify: bool = False):
@@ -389,7 +470,11 @@ class Workbench:
         return {"verified": True, "source": info, "ranges": [{"address": a, "size": len(d)} for a, d in segments],
                 "symbols_verified": bool(self.symbols and self.verified == self.symbols.info["sha256"])}
 
-    def check_heartbeat(self, address: int, size: int = 4, interval: float = .1, samples: int = 3):
+    def check_heartbeat(self, address: int | None = None, size: int = 4, interval: float = .1, samples: int = 3, name: str | None = None):
+        if (address is None) == (name is None):
+            raise InputError("Supply either address or name")
+        if name is not None:
+            address, size, _, _ = self.require_symbols().resolve(name)
         integer(size, 1, 8)
         integer(samples, 2, 32)
         number(interval, .01, 10)
@@ -581,6 +666,21 @@ class Workbench:
             row = self.db.execute("SELECT state,result FROM jobs WHERE id=?", (job_id,)).fetchone()
         return {"job_id": job_id, "state": row[0] if row else "unknown", "result": json.loads(row[1]) if row and row[1] else None, "retry_safe": False}
 
+    def wait_job(self, job_id: str, timeout_s: float = 60.0, poll_interval: float = 0.2):
+        if not isinstance(job_id, str) or not 1 <= len(job_id) <= 128:
+            raise InputError("job_id must contain 1..128 characters")
+        number(timeout_s, 0.05, 3600)
+        number(poll_interval, 0.01, 5.0)
+        deadline = time.monotonic() + timeout_s
+        while True:
+            status = self.job_status(job_id)
+            if status["state"] in ("completed", "failed", "unknown"):
+                return {**status, "timed_out": False}
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return {**self.job_status(job_id), "timed_out": True}
+            time.sleep(min(poll_interval, remaining))
+
     def cancel_capture(self):
         self.cancel.set()
         return {"stop_requested": True, "hardware_writes_cancelled": False}
@@ -667,7 +767,9 @@ OPERATIONS = {
     "set_speed": "Set an explicit SDK debug clock after stopping RTT; no performance guarantee",
     "write_memory": "Authorized RAM/MMIO write with old-value guard and mandatory readback; side effects remain caller responsibility",
     "read_variable": "Typed symbol read, reporting image verification status",
+    "read_variables": "Batch typed symbol reads sharing merged memory spans",
     "write_variable": "Authorized scalar write requiring current verified symbol generation",
+    "write_variables": "Authorized batch scalar writes sharing optional halt window",
     "verify_image": "Compare programmed ELF/HEX/BIN bytes to target without programming",
     "check_heartbeat": "Compare a caller-identified counter over time without resetting the target",
     "core_registers": "Read registers of explicitly halted core",
@@ -681,6 +783,7 @@ OPERATIONS = {
     "fault_snapshot": "Architecture-aware halted Cortex-M snapshot; basic frame address must be supplied",
     "start_job": "Journaled program/erase/reset/capture; acceptance is not completion",
     "job_status": "Read persisted task result; unknown never permits replay",
+    "wait_job": "Wait for a submitted job to reach a terminal state",
     "cancel_capture": "Request cooperative capture stop; does not cancel programming"
 }
 
@@ -694,7 +797,7 @@ def dispatch(workbench, operation, arguments=None):
     if not isinstance(arguments, dict):
         raise InputError("arguments must be an object")
     inspect.signature(method).bind(**arguments)
-    if operation in ("job_status", "device_status", "cancel_capture", "ping"):
+    if operation in ("job_status", "wait_job", "device_status", "cancel_capture", "ping"):
         return method(**arguments)
     if workbench.job_active and operation != "start_job":
         raise InputError("Hardware job active; query job_status or cancel_capture")

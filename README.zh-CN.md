@@ -100,7 +100,7 @@ openjlink --state-dir .openjlink-state session
 {"id":2,"operation":"device_status","arguments":{}}
 ```
 
-这两条不连接目标。实际连接使用 `connect`，提供真实 `serial`、`device`、`interface`、`speed_khz`；后续操作继续写入该进程的标准输入。JSON 模式使用下划线操作名，直接命令使用连字符和命名参数。复杂列表/对象通过 JSON 或 `--args @file.json` 传入。
+这两条不连接目标。实际连接使用 `connect`，提供真实 `serial`、`device`、`interface`、`speed_khz`；后续操作继续写入该进程的标准输入。传入 `--compact` 可省略重复模板字段与长哈希，传入 `--batch <file|-> --stop-on-error` 可一次性执行 JSON 数组或 JSONL 批处理后退出。JSON 模式使用下划线操作名，直接命令使用连字符和命名参数。复杂列表/对象通过 JSON 或 `--args @file.json` 传入。
 
 单次命令执行完会关闭自身会话。不能将独立的 connect/read 命令当作同一连接。会话结束会等待已提交任务；采集应先请求 `cancel_capture` 并查询任务终态，不能靠关闭输入取消 Flash 操作。
 
@@ -109,9 +109,9 @@ openjlink --state-dir .openjlink-state session
 | 开发场景 | 操作 |
 |---|---|
 | 连不上、选错探针、缺主机依赖 | inspect-environment、discover-probes、connect、probe-info |
-| 编译后下载并核对程序 | run-build、inspect-image、start-job、job-status、verify-image、check-heartbeat |
+| 编译后下载并核对程序 | run-build、inspect-image、start-job、job-status、wait-job、verify-image、check-heartbeat |
 | 查看 RAM、Flash、缓冲和配置 | read-memory、read-regions、dump-memory、write-memory、write-regions |
-| 按全局变量、结构体成员或数组定位 | load-symbols、search-symbols、type-info、read-variable、write-variable、symbolize |
+| 按全局变量、结构体成员或数组定位 | load-symbols、search-symbols、type-info、read-variable、read-variables、write-variable、write-variables、symbolize |
 | 查看外设寄存器和位域 | load-peripherals、list-peripherals、read-peripherals |
 | 暂停、单步、断点、故障取证 | debug-control、breakpoint、core-registers、fault-snapshot |
 | 日志、二进制交互和连续记录 | rtt-start、rtt-channels、rtt-read、rtt-write、start-job、export-rtt |

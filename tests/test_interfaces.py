@@ -264,13 +264,52 @@ def test_state_dir_after_subcommand_schema_jobs_and_session_help(tmp_path):
         assert (row["ok"] and row["result"]["operations"]) if "session" in args else row["operations"]
 
     schema = json.loads(subprocess.check_output(command + ["schema"], text=True))
-    assert len(schema) == 51
+    assert len(schema) == 54
     job_schema = json.loads(subprocess.check_output(command + ["schema", "start_job"], text=True))
     assert set(job_schema["job_operations"]) == {"program", "erase", "reset", "capture"}
     assert job_schema["terminal_states"] == ["completed", "failed", "unknown"]
 
     session_help = subprocess.check_output(command + ["session", "--help"], text=True)
     assert '"operation"' in session_help and '"arguments"' in session_help
+
+
+def test_compact_cli_and_session_batch(tmp_path):
+    command = [sys.executable, "-m", "openjlink"]
+    full_raw = subprocess.check_output(command + ["schema"], text=True)
+    compact_raw = subprocess.check_output(command + ["schema", "--compact"], text=True)
+    compact_data = json.loads(compact_raw)
+    assert len(compact_data) == 54 and isinstance(compact_data["ping"], str)
+    assert len(compact_raw) < len(full_raw) * 0.6
+    start_compact = json.loads(subprocess.check_output(command + ["schema", "--compact", "start_job"], text=True))
+    assert set(start_compact) == {"signature", "job_operations", "terminal_states"}
+
+    batch_json = tmp_path / "batch.json"
+    batch_json.write_text(json.dumps([
+        {"operation": "ping"},
+        {"operation": "device_status"},
+    ]), encoding="utf-8")
+    res = subprocess.run(
+        command + ["session", "--state-dir", str(tmp_path / "batch-arr"), "--compact", "--batch", str(batch_json)],
+        capture_output=True, text=True, check=True,
+    )
+    rows = [json.loads(line) for line in res.stdout.splitlines()]
+    assert [r["id"] for r in rows] == [1, 2]
+    assert rows[0]["result"]["operation_count"] == 40
+    assert "engineering_policy" not in rows[0]["result"]
+
+    jsonl_in = '{"id":10,"operation":"ping"}\n{"id":11,"operation":"read_memory","arguments":{"address":0,"size":4}}\n{"id":12,"operation":"device_status"}\n'
+    err_res = subprocess.run(
+        command + ["session", "--state-dir", str(tmp_path / "batch-err"), "--compact", "--batch", "-", "--stop-on-error"],
+        input=jsonl_in, capture_output=True, text=True,
+    )
+    assert err_res.returncode == 1
+    err_rows = [json.loads(line) for line in err_res.stdout.splitlines()]
+    assert [r["id"] for r in err_rows] == [10, 11] and err_rows[0]["ok"] is True and err_rows[1]["ok"] is False
+
+    ping_compact = json.loads(subprocess.check_output(
+        command + ["--compact", "ping", "--state-dir", str(tmp_path / "direct-compact")], text=True,
+    ))
+    assert set(ping_compact) == {"version", "state_dir", "operation_count"}
 
 
 def test_skill_launcher_uses_its_own_environment(tmp_path):

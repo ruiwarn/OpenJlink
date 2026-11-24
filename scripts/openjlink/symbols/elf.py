@@ -291,16 +291,67 @@ class Symbols:
             code = 5 if any(e.attributes.get("DW_AT_const_value") and e.attributes["DW_AT_const_value"].value < 0 for e in typ.iter_children()) else 7
         return address, size, code, typ
 
-    def decode(self, name, data):
-        address, size, encoding, typ = self.resolve(name)
+    def _decode_scalar(self, typ, data):
         endian = "little" if self.elf.little_endian else "big"
+        encoding_attr = typ.attributes.get("DW_AT_encoding")
+        encoding = encoding_attr.value if encoding_attr else None
+        if typ.tag == "DW_TAG_enumeration_type" and encoding is None:
+            encoding = 5 if any(e.attributes.get("DW_AT_const_value") and e.attributes["DW_AT_const_value"].value < 0 for e in typ.iter_children()) else 7
         if typ.tag == "DW_TAG_pointer_type":
-            return {"pointer": int.from_bytes(data, endian)}
-        if encoding == 4 and size in (4, 8):
-            return struct.unpack(("<" if self.elf.little_endian else ">") + ("f" if size == 4 else "d"), data)[0]
+            return True, {"pointer": int.from_bytes(data, endian)}
+        if encoding == 4 and len(data) in (4, 8):
+            return True, struct.unpack(("<" if self.elf.little_endian else ">") + ("f" if len(data) == 4 else "d"), data)[0]
         if encoding in (2, 5, 6, 7, 8) or typ.tag == "DW_TAG_enumeration_type":
-            return int.from_bytes(data, endian, signed=encoding in (5, 6))
-        return {"hex": data.hex(), "type": typ.tag}
+            return True, int.from_bytes(data, endian, signed=encoding in (5, 6))
+        return False, {"hex": data.hex(), "type": typ.tag}
+
+    def _member_info(self, member):
+        if member.tag != "DW_TAG_member" or "DW_AT_name" not in member.attributes or "DW_AT_bit_size" in member.attributes:
+            return None
+        offset_attr = member.attributes.get("DW_AT_data_member_location")
+        if offset_attr is not None and type(offset_attr.value) is not int:
+            return None
+        offset = offset_attr.value if offset_attr else 0
+        mtype = self.type_die(member)
+        return member.attributes["DW_AT_name"].value.decode(errors="replace"), offset, mtype, self.size(mtype)
+
+    def struct_fields(self, typ, limit=64):
+        if typ.tag not in ("DW_TAG_structure_type", "DW_TAG_union_type"):
+            return None, False
+        items = []
+        for member in typ.iter_children():
+            try:
+                parsed = self._member_info(member)
+            except InputError:
+                parsed = None
+            if parsed is not None:
+                name, offset, mtype, msize = parsed
+                items.append({"name": name, "offset": offset, "size": msize, "tag": mtype.tag})
+        return items[:limit], len(items) > limit
+
+    def decode_type(self, typ, data):
+        ok, decoded = self._decode_scalar(typ, data)
+        if ok:
+            return decoded
+        if typ.tag in ("DW_TAG_structure_type", "DW_TAG_union_type") and len(data) <= 256:
+            members = [m for m in typ.iter_children() if m.tag == "DW_TAG_member"]
+            if 1 <= len(members) <= 32:
+                fields = {}
+                for member in members:
+                    try:
+                        parsed = self._member_info(member)
+                    except InputError:
+                        parsed = None
+                    if parsed is None or parsed[1] < 0 or parsed[1] + parsed[3] > len(data):
+                        return decoded
+                    name, offset, mtype, msize = parsed
+                    fields[name] = self._decode_scalar(mtype, data[offset:offset + msize])[1]
+                return {"fields": fields, "type": typ.tag}
+        return decoded
+
+    def decode(self, name, data):
+        _, _, _, typ = self.resolve(name)
+        return self.decode_type(typ, data)
 
     def encode(self, name, value):
         address, size, encoding, typ = self.resolve(name)
@@ -310,13 +361,14 @@ class Symbols:
             return value.to_bytes(size, "little" if self.elf.little_endian else "big", signed=encoding in (5, 6))
         raise InputError("Writing supports scalar integer/enum/float, not pointers or aggregates")
 
-    def search(self, query="", limit=100):
+    def search(self, query="", limit=30):
         self.current()
         if "::" in query:
             q = query.lower()
             names = [f"{posixpath.basename(cu) or '<unknown>'}::{n}" for n in sorted(self.variables) for cu, _ in self.variables[n] if q in f"{cu}::{n}".lower()]
-            return {"generation": self.info["sha256"], "names": names[:limit]}
-        return {"generation": self.info["sha256"], "names": [n for n in sorted(self.variables) if query.lower() in n.lower()][:limit]}
+        else:
+            names = [n for n in sorted(self.variables) if query.lower() in n.lower()]
+        return {"generation": self.info["sha256"], "names": names[:limit], "total": len(names), "truncated": len(names) > limit}
 
     def memory_map(self):
         return [{"name": s.name, "address": int(s["sh_addr"]), "size": int(s["sh_size"]), "type": s["sh_type"]} for s in self.elf.iter_sections() if s["sh_flags"] & 2]

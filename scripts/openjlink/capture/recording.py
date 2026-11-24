@@ -43,7 +43,8 @@ def capture(workbench, kind, duration, path, period, names, regions, channel):
             while (time.monotonic_ns() - start) / 1e9 < duration and not workbench.cancel.is_set():
                 begin = time.monotonic_ns()
                 if kind == "variables":
-                    values = {name: workbench.read_variable(name) for name in names}
+                    batch = workbench.read_variables(names)["values"]
+                    values = {name: {"value": batch[name]} for name in names}
                 elif kind == "peripherals":
                     values = {r["name"]: {"value": r["value"], "fields": r["fields"]}
                               for r in workbench.read_peripherals(names)["registers"]}

@@ -100,7 +100,7 @@ Send one JSON request per line and receive one immediate JSON response per line:
 {"id":2,"operation":"device_status","arguments":{}}
 ```
 
-These two requests do not connect to a target. To connect, call `connect` with the actual `serial`, `device`, `interface`, and `speed_khz`, then continue sending operations to the same process's standard input. JSON operation names use underscores; direct commands use hyphens and named arguments. Pass complex lists and objects through JSON or `--args @file.json`.
+These two requests do not connect to a target. To connect, call `connect` with the actual `serial`, `device`, `interface`, and `speed_khz`, then continue sending operations to the same process's standard input. Pass `--compact` to omit repeated boilerplate/hashes, or `--batch <file|-> --stop-on-error` to run a JSON array or JSONL batch and exit. JSON operation names use underscores; direct commands use hyphens and named arguments. Pass complex lists and objects through JSON or `--args @file.json`.
 
 A single command closes its own session when it finishes. Separate connect/read processes do not share a connection. Ending a session waits for submitted jobs. Request `cancel_capture` and check the terminal job state before exiting a capture session; closing the input does not cancel a Flash operation.
 
@@ -109,9 +109,9 @@ A single command closes its own session when it finishes. Separate connect/read 
 | Development task | Operations |
 |---|---|
 | Diagnose connection failures, select a probe, check host dependencies | inspect-environment, discover-probes, connect, probe-info |
-| Build, program, and verify firmware | run-build, inspect-image, start-job, job-status, verify-image, check-heartbeat |
+| Build, program, and verify firmware | run-build, inspect-image, start-job, job-status, wait-job, verify-image, check-heartbeat |
 | Inspect RAM, Flash, buffers, and configuration | read-memory, read-regions, dump-memory, write-memory, write-regions |
-| Locate globals, structure members, and array elements | load-symbols, search-symbols, type-info, read-variable, write-variable, symbolize |
+| Locate globals, structure members, and array elements | load-symbols, search-symbols, type-info, read-variable, read-variables, write-variable, write-variables, symbolize |
 | Inspect peripheral registers and bit fields | load-peripherals, list-peripherals, read-peripherals |
 | Halt, step, manage breakpoints, and capture faults | debug-control, breakpoint, core-registers, fault-snapshot |
 | Capture logs, exchange binary data, and record streams | rtt-start, rtt-channels, rtt-read, rtt-write, start-job, export-rtt |

@@ -27,21 +27,41 @@ def discover_device_databases(tools=None):
     return sorted(found)
 
 
-def new_probe(dll_path=None):
+def _log_writer(log_path, level):
+    target = Path(log_path)
+
+    def write(text):
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("a", encoding="utf-8") as stream:
+                stream.write(f"[{level}] {text}\n")
+        except OSError:
+            pass
+
+    return write
+
+
+def new_probe(dll_path=None, log_path=None, quiet_log=False):
     import pylink
     key = str(Path(dll_path).expanduser().resolve()) if dll_path else ""
     library = _LIBRARIES.get(key)
     if library is None:
         library = pylink.library.Library(dllpath=dll_path, use_tmpcpy=False)
         _LIBRARIES[key] = library
-    return pylink.JLink(lib=library, log=lambda text: print(text, file=sys.stderr),
-                       error=lambda text: print(text, file=sys.stderr),
-                       warn=lambda text: print(text, file=sys.stderr),
-                       unsecure_hook=lambda title, message, flags: pylink.enums.JLinkFlags.DLG_BUTTON_NO)
+    if log_path is not None:
+        log_cb = _log_writer(log_path, "LOG")
+        warn_cb = _log_writer(log_path, "WARN")
+        err_cb = _log_writer(log_path, "ERR")
+    else:
+        log_cb = (lambda text: None) if quiet_log else (lambda text: print(text, file=sys.stderr))
+        warn_cb = lambda text: print(text, file=sys.stderr)
+        err_cb = lambda text: print(text, file=sys.stderr)
+    return pylink.JLink(lib=library, log=log_cb, error=err_cb, warn=warn_cb,
+                        unsecure_hook=lambda title, message, flags: pylink.enums.JLinkFlags.DLG_BUTTON_NO)
 
 
 def inventory(dll_path=None):
-    probe = new_probe(dll_path)
+    probe = new_probe(dll_path, quiet_log=True)
     try:
         return [{"serial": int(p.SerialNumber), "product": p.acProduct.decode(errors="replace"),
                  "connection": int(p.Connection)} for p in probe.connected_emulators()]

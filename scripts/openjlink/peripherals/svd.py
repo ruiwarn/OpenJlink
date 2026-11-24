@@ -62,6 +62,7 @@ class Peripherals:
         integer(limit, 1, 1000)
         matches = [v for k, v in sorted(self.registers.items()) if query.casefold() in k.casefold()]
         return {"source": self.source, "device": self.device, "registers": matches[:limit], "total": len(matches),
+                "truncated": len(matches) > limit,
                 "target_match": "caller must verify exact device/revision", "clusters": "unsupported"}
 
     def select(self, names):

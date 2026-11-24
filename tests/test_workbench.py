@@ -3,6 +3,7 @@ import io
 from pathlib import Path
 import shutil
 import sqlite3
+import struct
 import subprocess
 import sys
 import time
@@ -702,3 +703,119 @@ def test_split_boot_app_verify_and_cu_qualified_statics(tmp_path, bench):
     w.verified = None
     elf_ranged = w.verify_image(str(elf), ranges=[{"address": 0x8000, "size": len(raw_bin)}])
     assert elf_ranged["symbols_verified"] is True
+
+
+def test_batch_variables_struct_decode_heartbeat_and_short_generation(elf_fixture, bench):
+    w, p = bench
+    w.load_symbols(str(elf_fixture))
+    info, segments = images(elf_fixture)
+    for address, data in segments:
+        p.memory_write8(address, data)
+    w.verify_image(str(elf_fixture))
+    gen = info["sha256"]
+
+    cfg_info = w.type_info("config")
+    assert [f["name"] for f in cfg_info["fields"]] == ["value", "scale"]
+    assert cfg_info["fields"][0]["offset"] == 0 and cfg_info["fields"][1]["offset"] == 4
+    val_addr = w.type_info("config.value")["address"]
+    scale_addr = w.type_info("config.scale")["address"]
+    p.memory_write8(val_addr, list((42).to_bytes(4, "little", signed=True)))
+    p.memory_write8(scale_addr, list(struct.pack("<f", 2.5)))
+    assert w.read_variable("config")["value"] == {"fields": {"value": 42, "scale": 2.5}, "type": "DW_TAG_structure_type"}
+
+    ctr_addr = w.type_info("counter")["address"]
+    p.memory_write8(ctr_addr, [1, 0, 0, 0])
+    p.reads.clear()
+    batch = w.read_variables(["config.value", "config.scale", "counter"], atomic_halt=True)
+    assert batch["values"] == {"config.value": 42, "config.scale": 2.5, "counter": 1}
+    assert batch["transactions"] == 2 and batch["atomic"] is True and p.running is True
+
+    with pytest.raises(InputError):
+        w.write_variable("config.value", 1, gen[:11], confirm=True)
+    with pytest.raises(InputError):
+        w.write_variable("config.value", 1, "deadbeef" * 2, confirm=True)
+
+    halt_states = []
+    orig_write = p.memory_write8
+
+    def tracked_write(addr, data):
+        halt_states.append(p.halted())
+        return orig_write(addr, data)
+
+    p.memory_write8 = tracked_write
+    wr = w.write_variables(
+        [{"name": "config.value", "value": 77}, {"name": "counter", "value": 88}],
+        gen[:12], confirm=True, atomic_halt=True,
+    )
+    assert wr["ok"] is True and wr["verified"] is True and wr["atomic"] is True
+    assert halt_states == [True, True] and p.running is True
+    p.memory_write8 = orig_write
+
+    seq = iter([[1, 0, 0, 0], [2, 0, 0, 0], [3, 0, 0, 0]])
+    p.memory_read8 = lambda a, s: next(seq)
+    hb = w.check_heartbeat(name="counter", interval=0.01, samples=3)
+    assert hb["value_changed"] is True
+
+    with pytest.raises(InputError):
+        w.check_heartbeat()
+    with pytest.raises(InputError):
+        w.check_heartbeat(address=ctr_addr, name="counter")
+
+
+def test_truncation_metadata_wait_job_probe_log_and_slim_capture(bench, svd_fixture, tmp_path, monkeypatch):
+    import json
+    from openjlink.hardware import probe as probe_mod
+    import pylink
+
+    w, p = bench
+    w.load_peripherals(str(svd_fixture), "little")
+    partial = w.list_peripherals("", limit=2)
+    assert partial["total"] == 4 and len(partial["registers"]) == 2 and partial["truncated"] is True
+    full = w.list_peripherals("")
+    assert full["truncated"] is False
+
+    w.start_job("reset", {"halt": False}, "wait-ok", True)
+    done = w.wait_job("wait-ok", timeout_s=3.0, poll_interval=0.01)
+    assert done["state"] == "completed" and done["timed_out"] is False
+
+    w.start_job("capture", {"kind": "memory", "regions": [{"address": 100, "size": 4}],
+                            "duration": 0.5, "period": 0.05, "path": str(tmp_path / "slow.jsonl")}, "wait-to", True)
+    timed = w.wait_job("wait-to", timeout_s=0.05, poll_interval=0.01)
+    assert timed["timed_out"] is True
+    w.cancel_capture()
+    assert w.wait_job("wait-to", timeout_s=3.0, poll_interval=0.01)["state"] == "completed"
+
+    class LogDummy:
+        def __init__(self, **kwargs):
+            kwargs["log"]("SWD banner")
+            kwargs["warn"]("clock adjusted")
+
+    probe_mod._LIBRARIES["__logtest__"] = object()
+    try:
+        monkeypatch.setattr(pylink.library, "Library", lambda **kw: object())
+        monkeypatch.setattr(pylink, "JLink", lambda lib=None, **kw: LogDummy(**kw))
+        wb = Workbench(tmp_path / "log-state")
+        try:
+            wb.factory(None)
+            log_text = (tmp_path / "log-state" / "jlink.log").read_text(encoding="utf-8")
+            assert "[LOG] SWD banner" in log_text and "[WARN] clock adjusted" in log_text
+        finally:
+            wb.close()
+    finally:
+        probe_mod._LIBRARIES.pop("__logtest__", None)
+
+    compiler = shutil.which("arm-none-eabi-gcc")
+    if compiler:
+        src = tmp_path / "cap.c"
+        src.write_text("volatile int cap_var = 5;\nvoid _start(void) { for (;;) {} }\n", encoding="utf-8")
+        elf = tmp_path / "cap.elf"
+        subprocess.run([compiler, "-g", "-O0", "-nostdlib", "-mcpu=cortex-m0", "-mthumb", "-Wl,-Ttext=0x1000", "-Wl,-Tdata=0x20000000", str(src), "-o", str(elf)], check=True, capture_output=True)
+        w.load_symbols(str(elf))
+        addr = w.type_info("cap_var")["address"]
+        p.memory_write8(addr, list((9).to_bytes(4, "little", signed=True)))
+        cap_out = tmp_path / "vars.jsonl"
+        w.start_job("capture", {"kind": "variables", "names": ["cap_var"], "duration": 0.02, "period": 0.01, "path": str(cap_out)}, "var-cap", True)
+        assert wait_job(w, "var-cap")["state"] == "completed"
+        rows = [json.loads(line) for line in cap_out.read_text(encoding="utf-8").splitlines()[1:]]
+        assert rows and "generation" not in rows[0]["data"]["cap_var"]
+        assert summarize_recording(str(cap_out))["channels"]["cap_var"]["first"] == 9

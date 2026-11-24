@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openjlink"
-version = "0.1.2"
+version = "0.1.3"
 requires-python = ">=3.10"
 description = "Project-independent J-Link CLI for embedded development and evidence capture"
 readme = "README.md"
